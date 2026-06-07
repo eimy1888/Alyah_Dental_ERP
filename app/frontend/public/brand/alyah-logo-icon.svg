@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" fill="none">
+  <defs>
+    <linearGradient id="tg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="50%" stop-color="#0099DD"/>
+      <stop offset="100%" stop-color="#0066BB"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <!-- Rounded square border -->
+  <rect x="2" y="2" width="40" height="40" rx="9" fill="none" stroke="url(#tg)" stroke-width="2"/>
+  <!-- Tooth body -->
+  <path d="M22 8 C16 8 11 12.5 11 18 C11 22 12.5 25.5 13 30 C13.5 34.5 14.5 38 17 38 C19 38 20 34.5 22 30 C24 34.5 25 38 27 38 C29.5 38 30.5 34.5 31 30 C31.5 25.5 33 22 33 18 C33 12.5 28 8 22 8Z" fill="url(#tg)" filter="url(#glow)"/>
+  <!-- Highlight -->
+  <ellipse cx="18.5" cy="15" rx="3" ry="4.5" fill="white" opacity="0.35" transform="rotate(-15 18.5 15)"/>
+</svg>

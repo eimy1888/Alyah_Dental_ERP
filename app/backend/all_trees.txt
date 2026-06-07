@@ -1,0 +1,15 @@
+ 
+=== routes === 
+Folder PATH listing
+Volume serial number is 46A1-AB44
+C:\USERS\HP\DESKTOP\DENTFLOW_PRO_PRO\APP\BACKEND\ROUTES
+¦   api.php
+¦   console.php
+¦   web.php
+¦   
++---api
+    +---v1
+            auth.php
+            Landing.php
+            platform.php
+            

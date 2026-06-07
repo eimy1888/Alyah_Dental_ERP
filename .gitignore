@@ -1,0 +1,23 @@
+# ── Laravel backend ──────────────────────────────────────
+app/backend/.env
+app/backend/.env.backup
+app/backend/vendor/
+app/backend/storage/logs/*.log
+app/backend/storage/framework/cache/
+app/backend/storage/framework/sessions/
+app/backend/storage/framework/views/
+app/backend/storage/app/public/
+app/backend/bootstrap/cache/*.php
+app/backend/node_modules/
+
+# ── Vite frontend ─────────────────────────────────────────
+app/frontend/node_modules/
+app/frontend/dist/
+app/frontend/.env.local
+app/frontend/.env.production
+
+# ── OS / editor ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+*.log

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 60" fill="none">
+  <defs>
+    <linearGradient id="toothGradW" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="50%" stop-color="#0099DD"/>
+      <stop offset="100%" stop-color="#60d0ff"/>
+    </linearGradient>
+    <filter id="glowW">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <!-- Tooth icon in rounded square -->
+  <rect x="2" y="8" width="40" height="44" rx="8" fill="none" stroke="url(#toothGradW)" stroke-width="2"/>
+  <!-- Tooth shape -->
+  <path d="M22 14 C16 14 12 18 12 23 C12 27 13.5 30 14 34 C14.5 38 15 44 18 44 C20 44 21 41 22 38 C23 41 24 44 26 44 C29 44 29.5 38 30 34 C30.5 30 32 27 32 23 C32 18 28 14 22 14Z" fill="url(#toothGradW)" filter="url(#glowW)"/>
+  <!-- Tooth highlight -->
+  <ellipse cx="19" cy="20" rx="3" ry="4" fill="white" opacity="0.4" transform="rotate(-15 19 20)"/>
+  <!-- Alyah text — white -->
+  <text x="50" y="38" font-family="'Inter', 'Segoe UI', Arial, sans-serif" font-size="26" font-weight="800" fill="white" letter-spacing="-0.5">Alyah</text>
+  <!-- Dental ERP text — light blue -->
+  <text x="50" y="53" font-family="'Inter', 'Segoe UI', Arial, sans-serif" font-size="10" font-weight="600" fill="#7dd8f8" letter-spacing="2.5">DENTAL ERP</text>
+</svg>

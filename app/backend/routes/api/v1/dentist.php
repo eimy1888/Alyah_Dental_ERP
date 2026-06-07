@@ -1,0 +1,99 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Dentist\DashboardController;
+use App\Http\Controllers\Api\V1\Dentist\AppointmentController;
+use App\Http\Controllers\Api\V1\Dentist\PatientController;
+use App\Http\Controllers\Api\V1\Dentist\MedicalRecordController;
+use App\Http\Controllers\Api\V1\Dentist\NotificationController;
+use App\Http\Controllers\Api\V1\Dentist\SettingsController;
+use App\Http\Controllers\Api\V1\Dentist\ReferralController;
+use App\Http\Controllers\Api\V1\Dentist\TreatmentEpisodeController;
+use App\Http\Controllers\Api\V1\QueueController;
+
+Route::middleware(['cookie.auth'])->prefix('dentist')->group(function () {
+
+    // ── Dashboard ─────────────────────────────────────────
+    Route::get('dashboard', [DashboardController::class, 'index']);
+
+    // ── Notifications ─────────────────────────────────────
+    Route::prefix('notifications')->group(function () {
+        Route::get('/',           [NotificationController::class, 'index']);
+        Route::get('/count',      [NotificationController::class, 'count']);
+        Route::post('/mark-read', [NotificationController::class, 'markRead']);
+    });
+
+    // ── Appointments ──────────────────────────────────────
+    Route::prefix('appointments')->group(function () {
+        Route::get('/',            [AppointmentController::class, 'index']);
+        Route::get('/export',      [AppointmentController::class, 'export']);
+        Route::get('/today',       [AppointmentController::class, 'today']);
+        Route::get('/{id}',        [AppointmentController::class, 'show']);
+        Route::put('/{id}/status', [AppointmentController::class, 'updateStatus']);
+
+        // v2: Live billing preview per appointment
+        Route::get('/{id}/billing', [TreatmentEpisodeController::class, 'billingPreview']);
+
+        // v2: Episode management per appointment
+        Route::get('/{appointmentId}/episodes',  [TreatmentEpisodeController::class, 'index']);
+        Route::post('/{appointmentId}/episodes', [TreatmentEpisodeController::class, 'store']);
+    });
+
+    // ── Clinical note signing ─────────────────────────────
+    Route::post('clinical-notes/{id}/sign', [AppointmentController::class, 'signNote']);
+
+    // ── Patients ──────────────────────────────────────────
+    Route::prefix('patients')->group(function () {
+        Route::get('/',               [PatientController::class, 'index']);
+        Route::get('/{id}',           [PatientController::class, 'show']);
+        Route::post('/{id}/notes',    [PatientController::class, 'addNote']);
+        Route::put('/{id}/insurance', [PatientController::class, 'updateInsurance']);
+    });
+
+    // ── Medical Records ───────────────────────────────────
+    Route::prefix('medical-records')->group(function () {
+        Route::get('/',            [MedicalRecordController::class, 'index']);
+        Route::get('/{type}/{id}', [MedicalRecordController::class, 'show']);
+    });
+
+    // ── Settings ──────────────────────────────────────────
+    Route::prefix('settings')->group(function () {
+        Route::get('/profile',          [SettingsController::class, 'getProfile']);
+        Route::put('/profile',          [SettingsController::class, 'updateProfile']);
+        Route::post('/change-password', [SettingsController::class, 'changePassword']);
+        Route::get('/clinic-info',      [SettingsController::class, 'getClinicInfo']);
+        Route::get('/services',         [SettingsController::class, 'getServices']);
+    });
+
+    // ── Live Queue ────────────────────────────────────────
+    Route::get('queue',            [QueueController::class, 'dentistQueue']);
+    Route::post('queue/call-next', [QueueController::class, 'callNext']);
+
+    // ── Recalls ───────────────────────────────────────────
+    Route::get('recalls', [AppointmentController::class, 'recalls']);
+    Route::post('appointments/{id}/set-recall', [AppointmentController::class, 'setRecall']);
+
+    // ── Referrals ─────────────────────────────────────────
+    Route::prefix('referral')->group(function () {
+        Route::get('/dentists', [ReferralController::class, 'getAvailableDentists']);
+        Route::post('/refer',   [ReferralController::class, 'refer']);
+    });
+
+    // ── Procedures (legacy + v2 unified) ─────────────────
+    Route::prefix('procedures')->group(function () {
+        Route::get('/appointment/{appointmentId}',      [MedicalRecordController::class, 'getAppointmentProcedures']);
+        Route::post('/',                                [MedicalRecordController::class, 'addProcedure']);
+        Route::delete('/{procedureId}',                 [MedicalRecordController::class, 'deleteProcedure']);
+        Route::post('/complete/{appointmentId}',        [MedicalRecordController::class, 'completeProcedures']);
+    });
+
+    // ── Treatment Episodes (v2) ───────────────────────────
+    Route::prefix('episodes')->group(function () {
+        Route::put('/{episodeId}',                      [TreatmentEpisodeController::class, 'update']);
+        Route::post('/{episodeId}/procedures',          [TreatmentEpisodeController::class, 'addProcedure']);
+        Route::delete('/{episodeId}/procedures/{procedureId}', [TreatmentEpisodeController::class, 'removeProcedure']);
+        Route::post('/{episodeId}/finalize',            [TreatmentEpisodeController::class, 'finalize']);
+        Route::post('/{episodeId}/pending-lab',         [TreatmentEpisodeController::class, 'markPendingLab']);
+        Route::post('/{episodeId}/resume',              [TreatmentEpisodeController::class, 'resumeFromLab']);
+    });
+});
