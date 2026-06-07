@@ -9,7 +9,7 @@ import {
   getAvailability, checkInAppointment,
 } from '../../services/receptionistService';
 import AppointmentRegistrationModal from '../../components/appointment/AppointmentRegistrationModal';
-import { getEthiopianDate } from '../../lib/utils';
+import { getEthiopianDate, toEthiopianTime } from '../../lib/utils';
 
 const statusColors = {
   pending:           'bg-amber-50 text-amber-700 border border-amber-200',
@@ -226,8 +226,9 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
             return (
               <tr key={`${start}-${end}`} className="border-b border-gray-100">
                 <td className="px-4 py-2.5 sticky left-0 bg-white z-10 border-r border-gray-100">
-                  <div className="text-xs font-bold text-gray-700">{start}</div>
-                  <div className="text-[10px] text-gray-400">→ {end}</div>
+                  <div className="text-xs font-bold text-gray-900">{toEthiopianTime(start, false)}</div>
+                  <div className="text-[10px] text-blue-500 font-semibold">{toEthiopianTime(start)}</div>
+                  <div className="text-[10px] text-gray-400">{start} – {end}</div>
                 </td>
                 {columnData.map(({ dentist, cellMap, isNoAppointments }) => {
                   if (isNoAppointments) {
@@ -278,8 +279,8 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
                       <td key={dentist.id} rowSpan={cell.span}
                         onClick={() => onSlotClick(dentist.id, cell.startTime)}
                         className="px-3 py-2.5 bg-green-50 border border-green-100 hover:bg-green-100 cursor-pointer transition-colors group align-top">
-                        <div className="text-[11px] text-green-600 font-medium group-hover:text-green-700">Free</div>
-                        <div className="text-[10px] text-green-400 mt-0.5">{cell.startTime} EAT</div>
+                        <div className="text-[11px] text-green-700 font-bold group-hover:text-green-800">{toEthiopianTime(cell.startTime)}</div>
+                        <div className="text-[10px] text-green-500 mt-0.5">{cell.startTime}</div>
                       </td>
                       );
                   }
@@ -615,7 +616,10 @@ export default function ReceptionistAppointments() {
                   <tbody className="divide-y divide-gray-50">
                     {appointmentsArray.map((apt) => (
                       <tr key={apt.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-semibold text-gray-900">{apt.time || apt.scheduled_at} EAT</td>
+                        <td className="px-6 py-4 font-semibold text-gray-900">
+                          <p>{apt.time_ett || apt.time}</p>
+                          <p className="text-xs text-gray-400 font-normal">{apt.time}</p>
+                        </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{apt.patient?.full_name || apt.patient_name || '—'}</td>
                         <td className="px-6 py-4 text-gray-600">{apt.dentist?.name || apt.dentist_name || '—'}</td>
                         <td className="px-6 py-4 text-gray-600">{apt.type}</td>

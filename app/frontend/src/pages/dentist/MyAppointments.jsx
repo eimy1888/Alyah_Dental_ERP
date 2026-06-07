@@ -81,7 +81,7 @@ function DetailModal({ appointment, onClose }) {
           <div className="grid grid-cols-2 gap-4">
             {[
               { label: 'Date',      value: appointment.date },
-              { label: 'Time',      value: appointment.time ? `${appointment.time} EAT` : '—' },
+              { label: 'Time',      value: appointment.time_ett ? `${appointment.time_ett} (${appointment.time})` : '—' },
               { label: 'Type',      value: appointment.type },
               { label: 'Duration',  value: `${appointment.duration_minutes} min` },
               { label: 'Phone',     value: appointment.patient_phone },
@@ -550,7 +550,7 @@ export default function MyAppointments() {
                   <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <p className="font-semibold text-gray-900">{appt.date}</p>
-                      <p className="text-xs text-blue-600 font-semibold">{appt.time} EAT</p>
+                      <p className="text-xs text-blue-600 font-semibold">{appt.time_ett || appt.time} <span className="text-gray-400 font-normal">({appt.time})</span></p>
                     </td>
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-900">{appt.patient_name}</p>
@@ -618,7 +618,8 @@ export default function MyAppointments() {
               </div>
               <div className="space-y-1.5 mb-4">
                 {[
-                  { label: 'Date',     value: `${appt.date} · ${appt.time} EAT` },
+                  { label: 'Date',     value: `${appt.date}` },
+                  { label: 'Time',     value: `${appt.time_ett || appt.time} (${appt.time})` },
                   { label: 'Duration', value: `${appt.duration_minutes} min` },
                   { label: 'Phone',    value: appt.patient_phone },
                 ].map(({ label, value }) => (

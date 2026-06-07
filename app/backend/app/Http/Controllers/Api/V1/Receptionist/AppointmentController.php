@@ -687,6 +687,7 @@ class AppointmentController extends Controller
                 
                 $bookedSlots[] = [
                     'time'           => $apt->appointment_time->format('H:i'),
+                    'time_ett'       => \App\Helpers\EthiopianTime::toEthiopian($apt->appointment_time),
                     'end_time'       => $aptEnd->format('H:i'),
                     'patient_name'   => $apt->patient?->full_name ?? '—',
                     'status'         => $status,
@@ -985,6 +986,8 @@ class AppointmentController extends Controller
             'scheduled_at'     => $appointment->appointment_time->format('H:i'),
             'date'             => $appointment->appointment_time->toDateString(),
             'time'             => $appointment->appointment_time->format('H:i'),
+            'time_ett'         => \App\Helpers\EthiopianTime::toEthiopian($appointment->appointment_time),
+            'time_ett_raw'     => \App\Helpers\EthiopianTime::toEthiopianRaw($appointment->appointment_time),
             'patient'          => [
                 'id'        => $appointment->patient?->id,
                 'full_name' => $appointment->patient?->full_name ?? '—',

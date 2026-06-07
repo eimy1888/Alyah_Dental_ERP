@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Save, Loader2, Search, User as UserIcon, Clock } from 'lucide-react';
 import apiClient from '../../services/axiosInstance';
-import { getEthiopianDate } from '../../lib/utils';
+import { getEthiopianDate, toEthiopianTime } from '../../lib/utils';
 
 // ── Date helpers ────────────────────────────────────────────────────────
 const localDateStr = (offsetDays = 0) => {
@@ -607,12 +607,14 @@ export default function AppointmentRegistrationModal({
                         <div className="mb-3 flex flex-wrap gap-2">
                           {morningHours?.enabled && (
                             <span className="text-[10px] px-2 py-1 bg-blue-50 text-blue-600 rounded-lg font-semibold">
-                              Morning: {morningHours.start} – {morningHours.end} EAT
+                              ጥዋት: {toEthiopianTime(morningHours.start)} – {toEthiopianTime(morningHours.end)}
+                              <span className="text-blue-400 font-normal ml-1">({morningHours.start}–{morningHours.end})</span>
                             </span>
                           )}
                           {afternoonHours?.enabled && (
                             <span className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg font-semibold">
-                              Afternoon: {afternoonHours.start} – {afternoonHours.end} EAT
+                              ቀን: {toEthiopianTime(afternoonHours.start)} – {toEthiopianTime(afternoonHours.end)}
+                              <span className="text-indigo-400 font-normal ml-1">({afternoonHours.start}–{afternoonHours.end})</span>
                             </span>
                           )}
                         </div>
@@ -639,7 +641,10 @@ export default function AppointmentRegistrationModal({
                                   }`}
                                 >
                                   <Clock className="w-3 h-3" />
-                                  {range.start} – {range.end} EAT
+                                  {toEthiopianTime(range.start)} – {toEthiopianTime(range.end)}
+                                  <span className={`font-normal text-[9px] ${isSelected ? 'text-blue-200' : 'text-green-500'}`}>
+                                    ({range.start}–{range.end})
+                                  </span>
                                 </button>
                               );
                             })}
@@ -650,7 +655,8 @@ export default function AppointmentRegistrationModal({
                               <p className="text-xs font-semibold text-blue-700 mb-2">
                                 Set exact start time within{' '}
                                 <span className="font-bold">
-                                  {selectedRange.start} – {selectedRange.end} EAT
+                                  {toEthiopianTime(selectedRange.start)} – {toEthiopianTime(selectedRange.end)}
+                                  <span className="font-normal text-blue-500"> ({selectedRange.start}–{selectedRange.end})</span>
                                 </span>:
                               </p>
                               <input
@@ -664,11 +670,13 @@ export default function AppointmentRegistrationModal({
                               />
                               {isTimeValid ? (
                                 <p className="text-xs text-green-600 font-semibold mt-1.5">
-                                  ✓ Appointment at <strong>{customTime} EAT</strong>
-                                  {' '}(ends {(() => {
+                                  ✓ <strong>{toEthiopianTime(customTime)}</strong>
+                                  <span className="text-green-500 font-normal"> ({customTime})</span>
+                                  {' '}→ ends {(() => {
                                     const endMin = toMinutes(form.appointment_time) + form.duration_minutes;
-                                    return `${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`;
-                                  })()} EAT)
+                                    const endStr = `${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`;
+                                    return <><strong>{toEthiopianTime(endStr)}</strong><span className="text-green-500 font-normal"> ({endStr})</span></>;
+                                  })()}
                                 </p>
                               ) : customTime ? (
                                 <p className="text-xs text-amber-600 mt-1.5">

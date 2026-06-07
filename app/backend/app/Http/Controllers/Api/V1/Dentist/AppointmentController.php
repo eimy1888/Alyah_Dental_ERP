@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\Rule;
 use App\Models\Appointment;
 use App\Models\Recall;
+use App\Helpers\EthiopianTime;
 use Carbon\Carbon;
 
 class AppointmentController extends Controller
@@ -324,6 +325,8 @@ class AppointmentController extends Controller
             'appointment_time' => $a->appointment_time->toDateTimeString(),
             'date'             => $a->appointment_time->toDateString(),
             'time'             => $a->appointment_time->format('H:i'),
+            'time_ett'         => EthiopianTime::toEthiopian($a->appointment_time),
+            'time_ett_raw'     => EthiopianTime::toEthiopianRaw($a->appointment_time),
             'duration_minutes' => $a->duration_minutes,
             'type'             => $a->type,
             'status'           => $a->status,
