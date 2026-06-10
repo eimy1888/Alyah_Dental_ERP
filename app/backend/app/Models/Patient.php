@@ -265,8 +265,11 @@ class Patient extends Model
         return $query->where('clinic_id', $clinicId);
     }
 
-    public function scopeForBranch($query, int $branchId)
+    public function scopeForBranch($query, ?int $branchId)
     {
+        if ($branchId === null) {
+            return $query;
+        }
         return $query->where('branch_id', $branchId);
     }
 

@@ -64,7 +64,7 @@ class Staff extends Model
     public function scopeForClinic(Builder $query, ?int $clinicId): Builder
     {
         if ($clinicId === null) {
-            return $query->whereRaw('1 = 0');
+            return $query; // no filter — sees all clinics
         }
         return $query->where('clinic_id', $clinicId);
     }
@@ -72,7 +72,7 @@ class Staff extends Model
     public function scopeForBranch(Builder $query, ?int $branchId): Builder
     {
         if ($branchId === null) {
-            return $query->whereRaw('1 = 0');
+            return $query; // no filter — sees all branches
         }
         return $query->where('branch_id', $branchId);
     }

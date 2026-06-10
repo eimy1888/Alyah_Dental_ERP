@@ -187,8 +187,8 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="border-b border-gray-200 bg-gray-50">
-            <th className="px-4 py-3 text-left text-xs font-bold tracking-widest text-gray-400 sticky left-0 bg-gray-50 z-10 w-32 min-w-[120px]">
-              TIME (EAT)
+            <th className="px-4 py-3 text-left text-xs font-bold tracking-widest text-gray-400 sticky left-0 bg-gray-50 z-10 w-36 min-w-[140px]">
+              ሰዓት (ETT)
             </th>
             {dentists.map((d) => (
               <th key={d.id} className="px-3 py-3 text-center text-xs font-bold text-gray-600 min-w-[160px]">
@@ -209,10 +209,10 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
                     <div className="flex items-center gap-1.5">
                       <Coffee className="w-3 h-3 text-orange-400" />
                       <span className="text-xs font-semibold text-orange-500">
-                        {start} – {end} EAT
+                        {toEthiopianTime(start)} – {toEthiopianTime(end)}
                       </span>
                     </div>
-                    <div className="text-[10px] text-orange-400 mt-0.5">Lunch Break</div>
+                    <div className="text-[10px] text-orange-400 mt-0.5">የምሳ እረፍት · Lunch Break</div>
                   </td>
                   {dentists.map((d) => (
                     <td key={d.id} className="px-3 py-2 text-center bg-orange-50/40">
@@ -226,9 +226,8 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
             return (
               <tr key={`${start}-${end}`} className="border-b border-gray-100">
                 <td className="px-4 py-2.5 sticky left-0 bg-white z-10 border-r border-gray-100">
-                  <div className="text-xs font-bold text-gray-900">{toEthiopianTime(start, false)}</div>
-                  <div className="text-[10px] text-blue-500 font-semibold">{toEthiopianTime(start)}</div>
-                  <div className="text-[10px] text-gray-400">{start} – {end}</div>
+                  <div className="text-xs font-bold text-gray-900">{toEthiopianTime(start)}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">{toEthiopianTime(end, false)} →</div>
                 </td>
                 {columnData.map(({ dentist, cellMap, isNoAppointments }) => {
                   if (isNoAppointments) {
@@ -280,7 +279,7 @@ function ContinuousGrid({ availability, onSlotClick, isPastDate }) {
                         onClick={() => onSlotClick(dentist.id, cell.startTime)}
                         className="px-3 py-2.5 bg-green-50 border border-green-100 hover:bg-green-100 cursor-pointer transition-colors group align-top">
                         <div className="text-[11px] text-green-700 font-bold group-hover:text-green-800">{toEthiopianTime(cell.startTime)}</div>
-                        <div className="text-[10px] text-green-500 mt-0.5">{cell.startTime}</div>
+                        <div className="text-[10px] text-green-500 mt-0.5">{toEthiopianTime(cell.freeEnd, false)} →</div>
                       </td>
                       );
                   }
@@ -608,7 +607,7 @@ export default function ReceptionistAppointments() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
-                      {['TIME (EAT)', 'PATIENT', 'DENTIST', 'TYPE', 'STATUS', 'ACTIONS'].map((h) => (
+                      {['ሰዓት (ETT)', 'PATIENT', 'DENTIST', 'TYPE', 'STATUS', 'ACTIONS'].map((h) => (
                         <th key={h} className="px-6 py-3 text-left text-xs font-bold tracking-widest text-gray-400">{h}</th>
                       ))}
                     </tr>
@@ -617,8 +616,8 @@ export default function ReceptionistAppointments() {
                     {appointmentsArray.map((apt) => (
                       <tr key={apt.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 font-semibold text-gray-900">
-                          <p>{apt.time_ett || apt.time}</p>
-                          <p className="text-xs text-gray-400 font-normal">{apt.time}</p>
+                          <p>{apt.time ? toEthiopianTime(apt.time) : (apt.time_ett || '—')}</p>
+                          <p className="text-xs text-gray-400 font-normal">{apt.time ? toEthiopianTime(apt.time, false) : ''}</p>
                         </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{apt.patient?.full_name || apt.patient_name || '—'}</td>
                         <td className="px-6 py-4 text-gray-600">{apt.dentist?.name || apt.dentist_name || '—'}</td>

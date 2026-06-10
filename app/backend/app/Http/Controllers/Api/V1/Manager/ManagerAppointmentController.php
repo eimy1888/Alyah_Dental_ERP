@@ -429,18 +429,22 @@ class ManagerAppointmentController extends Controller
     /**
      * Auto-mark appointments as no-show if they started more than grace period ago
      */
-    private function autoMarkNoShows(int $clinicId, int $branchId): void
+    private function autoMarkNoShows(int $clinicId, ?int $branchId): void
     {
         $tz = self::ETHIOPIAN_TZ;
         $now = Carbon::now($tz);
         $today = $now->copy()->startOfDay();
 
         // Get all confirmed appointments for today that have ended
-        $appointments = Appointment::where('clinic_id', $clinicId)
-            ->where('branch_id', $branchId)
+        $query = Appointment::where('clinic_id', $clinicId)
             ->whereDate('appointment_time', $today)
-            ->where('status', 'confirmed')
-            ->get();
+            ->where('status', 'confirmed');
+
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        $appointments = $query->get();
 
         foreach ($appointments as $appointment) {
             $appointmentStart = $appointment->appointment_time;

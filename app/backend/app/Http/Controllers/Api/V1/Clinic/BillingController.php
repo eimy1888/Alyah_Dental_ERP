@@ -201,10 +201,11 @@ class BillingController extends Controller
         $data = Payment::forClinic($clinicId)
             ->where('status', 'completed')
             ->where('paid_at', '>=', now()->startOfWeek())
-            ->selectRaw('DAYNAME(paid_at) as day, SUM(amount) as amount')
-            ->groupBy('day')
-            ->orderBy('paid_at')
-            ->get();
+            ->selectRaw('DAYNAME(paid_at) as day, DAYOFWEEK(paid_at) as day_num, SUM(amount) as amount')
+            ->groupBy('day', 'day_num')
+            ->orderBy('day_num')
+            ->get()
+            ->map(fn($row) => ['day' => $row->day, 'amount' => $row->amount]);
 
         return response()->json([
             'success' => true,

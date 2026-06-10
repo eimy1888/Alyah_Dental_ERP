@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Accountant\BillingController;
 use App\Http\Controllers\Api\V1\Accountant\InvoiceReviewController;
 use App\Http\Controllers\Api\V1\Accountant\ReportController;
 use App\Http\Controllers\Api\V1\Accountant\SettingsController;
+use App\Http\Controllers\Api\V1\Accountant\NotificationController;
 
 Route::middleware(['cookie.auth'])->prefix('accountant')->group(function () {
 
@@ -85,5 +86,13 @@ Route::middleware(['cookie.auth'])->prefix('accountant')->group(function () {
         Route::post('/change-password', [SettingsController::class, 'changePassword']);
         Route::get('/clinic-info',      [SettingsController::class, 'getClinicInfo']);
         Route::get('/filters',          [SettingsController::class, 'getFilters']);
+    });
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+    Route::prefix('notifications')->group(function () {
+        Route::get('/count',      [NotificationController::class, 'count']);
+        Route::get('/',           [NotificationController::class, 'index']);
+        Route::put('/{id}/read',  [NotificationController::class, 'markRead']);
+        Route::put('/read-all',   [NotificationController::class, 'markAllRead']);
     });
 });

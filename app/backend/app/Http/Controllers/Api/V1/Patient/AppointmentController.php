@@ -48,46 +48,24 @@ class AppointmentController extends Controller
         $clinicId = $user->clinic_id;
         $branchId = $user->branch_id;
 
-        // Get dentists from staff table with their specializations
         $dentists = Staff::where('clinic_id', $clinicId)
             ->where('branch_id', $branchId)
-            ->whereHas('user', function($q) {
-                $q->where('role', 'dentist')->where('is_active', true);
-            })
+            ->dentists()
+            ->available()
             ->with('user:id,name,email')
-            ->get();
-
-        $result = $dentists->map(function($staff) {
-            return [
-                'id' => $staff->user_id,  // Use user_id for consistency with appointments table
-                'name' => $staff->user->name,
-                'email' => $staff->user->email,
+            ->get()
+            ->map(fn($staff) => [
+                'id'             => $staff->user_id,
+                'staff_id'       => $staff->id,
+                'name'           => $staff->user->name,
+                'email'          => $staff->user->email,
                 'specialization' => $staff->specialization ?? 'General Dentistry',
-                'is_available' => true,
-            ];
-        });
-
-        // If no staff records found, fallback to users table
-        if ($result->isEmpty()) {
-            $users = User::where('clinic_id', $clinicId)
-                ->where('role', 'dentist')
-                ->where('is_active', true)
-                ->get(['id', 'name', 'email']);
-            
-            $result = $users->map(function($user) {
-                return [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'specialization' => 'General Dentistry',
-                    'is_available' => true,
-                ];
-            });
-        }
+                'is_available'   => true,
+            ]);
 
         return response()->json([
             'success' => true,
-            'data' => $result,
+            'data'    => $dentists,
         ]);
     }
 

@@ -281,16 +281,17 @@ public function getDentists(Request $request): JsonResponse
 
     $dentists = Staff::forClinic($clinicId)
         ->forBranch($branchId)
-        ->whereHas('user', fn($q) => $q->where('role', 'dentist')->where('is_active', true))
+        ->dentists()
+        ->available()
         ->with('user:id,name,role')
         ->get()
         ->map(fn($s) => [
-            'id'             => $s->id,
-            'user_id'        => $s->user_id,
-            'name'           => $s->name,
-            'specialization' => $s->specialization ?? 'General Dentistry',
-            'is_available'   => true,
-            'is_active'      => true,
+            'id'                 => $s->id,
+            'user_id'            => $s->user_id,
+            'name'               => $s->name,
+            'specialization'     => $s->specialization ?? 'General Dentistry',
+            'is_available'       => true,
+            'is_active'          => $s->is_active,
         ]);
 
     return response()->json([

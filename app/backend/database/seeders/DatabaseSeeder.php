@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             DentistSeeder::class,        // 4. Dentist and receptionist
             AccountantSeeder::class,     // 5. Accountant and financial data
             PatientSeeder::class,        // 6. Patients and appointments
+            ServiceSeeder::class,        // 7. Dental services catalogue
         ]);
     }
 }

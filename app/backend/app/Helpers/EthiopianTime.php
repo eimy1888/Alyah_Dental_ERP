@@ -7,17 +7,20 @@ use Carbon\Carbon;
 /**
  * Ethiopian Traditional Time (ETT) Helper
  *
- * Ethiopia uses a 12-hour clock that is offset by 6 hours from standard time.
- * The Ethiopian day starts at sunrise (~6:00 AM standard), so:
+ * Ethiopian traditional clock is a true 12-hour clock starting at sunrise (std 06:00).
+ * Each half-day starts at 12 and counts up: 12 → 1 → 2 → ... → 11 → 12 → ...
  *
- *   Standard 06:00  =  Ethiopian  0:00 (midnight / start of day)
- *   Standard 08:30  =  Ethiopian  2:30 (ሁለት ሰዓት ተኩል ጥዋት)
- *   Standard 12:00  =  Ethiopian  6:00 (ስድስት ሰዓት)
- *   Standard 13:30  =  Ethiopian  7:30 (ሰባት ሰዓት ተኩል ቀን)
- *   Standard 17:00  =  Ethiopian 11:00 (አስራ አንድ ሰዓት ቀን)
- *   Standard 20:00  =  Ethiopian  2:00 (ሁለት ሰዓት ሌሊት)
+ *   Standard 06:00  →  12:00 ጥዋት   (morning starts at 12)
+ *   Standard 07:00  →   1:00 ጥዋት
+ *   Standard 11:00  →   5:00 ጥዋት
+ *   Standard 12:00  →   6:00 ቀን
+ *   Standard 17:00  →  11:00 ቀን
+ *   Standard 18:00  →  12:00 ምሽት   (evening starts at 12)
+ *   Standard 23:00  →   5:00 ምሽት
+ *   Standard 00:00  →   6:00 ሌሊት
+ *   Standard 05:00  →  11:00 ሌሊት
  *
- * Conversion:  ETT_hour = (standard_hour - 6 + 24) % 24
+ * Conversion: shifted = (standard_hour - 6 + 24) % 12,  display = (shifted == 0) ? 12 : shifted
  *
  * Period labels:
  *   00:00–05:59 standard  →  ሌሊት  (lelit  / night)
@@ -42,13 +45,10 @@ class EthiopianTime
 
         $stdHour   = (int) $time->format('G');   // 0-23
         $minute    = (int) $time->format('i');
-        $ettHour   = ($stdHour - 6 + 24) % 24;  // shift back 6 hours
 
-        // Use 12-hour display (1–12)
-        $display12 = $ettHour % 12;
-        if ($display12 === 0) {
-            $display12 = 12;
-        }
+        // True 12-hour clock: shift back 6 hours, mod 12, 0 → 12
+        $shifted   = ($stdHour - 6 + 24) % 12;
+        $display12 = $shifted === 0 ? 12 : $shifted;
 
         $formatted = sprintf('%d:%02d', $display12, $minute);
 
