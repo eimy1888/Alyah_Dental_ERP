@@ -453,12 +453,17 @@ class Invoice extends Model
 
     /**
      * Create a clinic card invoice for a patient registration.
+     * Tax is always applied — card fee is the base, VAT on top.
      */
     public static function createCardInvoiceForPatient(
         Patient $patient,
         User $createdBy,
         float $cardPrice
     ): self {
+        $taxRate   = (float) ($patient->clinic?->getSetting('tax_rate', 15) ?? 15);
+        $taxAmount = round($cardPrice * ($taxRate / 100), 2);
+        $total     = $cardPrice + $taxAmount;
+
         $invoice = self::create([
             'clinic_id'        => $patient->clinic_id,
             'branch_id'        => $patient->branch_id,
@@ -468,10 +473,13 @@ class Invoice extends Model
             'invoice_number'   => self::generateNumber($patient->clinic_id),
             'invoice_type'     => self::TYPE_CARD,
             'lifecycle_status' => self::STATUS_ESTIMATED,
-            'total'            => $cardPrice,
-            'estimated_total'  => $cardPrice,
+            'total'            => $total,
+            'estimated_total'  => $total,
+            'tax_rate'         => $taxRate,
+            'tax_amount'       => $taxAmount,
             'paid'             => 0,
-            'balance'          => $cardPrice,
+            'pre_paid'         => 0,
+            'balance'          => $total,
             'status'           => 'sent',
             'issued_at'        => now(),
             'due_date'         => now()->addDays(15),

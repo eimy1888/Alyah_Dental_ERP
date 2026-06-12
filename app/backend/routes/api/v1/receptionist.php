@@ -74,4 +74,12 @@ Route::middleware(['cookie.auth'])->prefix('receptionist')->group(function () {
 
     // ── Services ──────────────────────────────────────────────────────────────
     Route::get('services', [SettingController::class, 'getServices']);
+
+    // ── Specializations (read-only, for dropdowns) ────────────────────────────
+    Route::get('specializations', function (\Illuminate\Http\Request $req) {
+        $specs = \App\Models\Specialization::forClinic($req->user()->clinic_id)
+            ->active()->ordered()
+            ->get(['id','name','short_code','description']);
+        return response()->json(['success' => true, 'data' => $specs]);
+    });
 });

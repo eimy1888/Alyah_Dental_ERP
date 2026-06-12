@@ -141,24 +141,30 @@ class BillingController extends Controller
 
         $subtotal = collect($request->items)
             ->sum(fn($i) => $i['quantity'] * $i['unit_price']);
-        $total = $subtotal;
 
-        $last          = Invoice::forClinic($clinicId)->orderByDesc('id')->first();
-        $nextNum       = $last ? intval(substr($last->invoice_number, -4)) + 1 : 1;
-        $invoiceNumber = 'INV-' . date('Ymd') . '-' . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
+        $clinic    = \App\Models\Clinic::find($clinicId);
+        $taxRate   = (float) ($clinic?->getSetting('tax_rate', 15) ?? 15);
+        $taxAmount = round($subtotal * ($taxRate / 100), 2);
+        $total     = $subtotal + $taxAmount;
+
+        $invoiceNumber = Invoice::generateNumber($clinicId);
 
         $invoice = Invoice::create([
-            'clinic_id'      => $clinicId,
-            'branch_id'      => $request->branch_id,
-            'patient_id'     => $request->patient_id,
-            'invoice_number' => $invoiceNumber,
-            'issued_at'      => Carbon::now(),
-            'due_date'       => $request->due_date,
-            'total'          => $total,
-            'paid'           => 0,
-            'balance'        => $total,
-            'status'         => 'sent',
-            'created_by'     => $accountant->id,
+            'clinic_id'        => $clinicId,
+            'branch_id'        => $request->branch_id,
+            'patient_id'       => $request->patient_id,
+            'invoice_number'   => $invoiceNumber,
+            'invoice_type'     => Invoice::TYPE_SERVICE,
+            'lifecycle_status' => Invoice::STATUS_ESTIMATED,
+            'issued_at'        => Carbon::now(),
+            'due_date'         => $request->due_date,
+            'total'            => $total,
+            'tax_rate'         => $taxRate,
+            'tax_amount'       => $taxAmount,
+            'paid'             => 0,
+            'balance'          => $total,
+            'status'           => 'sent',
+            'created_by'       => $accountant->id,
         ]);
 
         foreach ($request->items as $item) {
@@ -212,23 +218,15 @@ class BillingController extends Controller
         $status     = $newBalance <= 0 ? 'paid' : 'partial';
 
         $invoice->update([
-            'paid'    => $newPaid,
-            'balance' => max(0, $newBalance),
-            'status'  => $status,
+            'paid'             => $newPaid,
+            'balance'          => max(0, $newBalance),
+            'status'           => $status,
+            'lifecycle_status' => $newBalance <= 0 ? Invoice::STATUS_PAID : ($invoice->lifecycle_status ?? 'sent'),
         ]);
 
         $invoice->refresh();
-        $hasCardPurchase = $invoice->items()
-            ->where('description', 'like', '%Clinic Card%')
-            ->exists();
-
-        if ($hasCardPurchase && $invoice->status === 'paid') {
-            $patient = $invoice->patient;
-            if ($patient && !$patient->hasActiveCard()) {
-                $cardNumber = 'CARD-' . str_pad($patient->id, 6, '0', STR_PAD_LEFT) . '-' . date('Ymd');
-                $patient->activateCard($cardNumber);
-            }
-        }
+        $invoice->activateCardIfApplicable();
+        $hasCardPurchase = $invoice->isCardInvoice();
 
         return response()->json([
             'success' => true,

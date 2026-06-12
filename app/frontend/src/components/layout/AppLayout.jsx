@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, CalendarDays, ListTodo,
   Receipt, Package, BarChart3, TrendingUp, FileText,
   UserRound, Building2, UserCog, Wallet, ClipboardList,
-  X,
+  X, FlaskConical,
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import { useAuth } from '../../hooks/useAuth';
@@ -81,6 +81,11 @@ const NAV_CONFIG = {
     { label: 'Medical Records', to: '/patient/medical-records', icon: FileText },
     { label: 'Settings',        to: '/patient/settings',        icon: Settings },
   ],
+  lab_technician: [
+    { label: 'Dashboard',  to: '/lab/dashboard', icon: LayoutDashboard },
+    { label: 'Lab Orders', to: '/lab/orders',    icon: FlaskConical },
+    { label: 'Settings',   to: '/lab/settings',  icon: Settings },
+  ],
 };
 
 const ROLE_LABELS = {
@@ -90,6 +95,7 @@ const ROLE_LABELS = {
   receptionist:   'Receptionist',
   accountant:     'Accountant',
   patient:        'Patient',
+  lab_technician: 'Lab Technician',
 };
 
 const ROLE_ACCENT = {
@@ -99,6 +105,7 @@ const ROLE_ACCENT = {
   receptionist:   'Front Desk',
   accountant:     'Finance',
   patient:        'Patient Portal',
+  lab_technician: 'Lab Department',
 };
 
 /* Role→ gradient for sidebar top accent */
@@ -109,6 +116,7 @@ const ROLE_GRADIENT = {
   receptionist:   'from-sky-600 to-blue-500',
   accountant:     'from-amber-500 to-orange-500',
   patient:        'from-rose-500 to-pink-500',
+  lab_technician: 'from-indigo-600 to-violet-500',
 };
 
 const NOTIF_COUNT_ROUTES = {
@@ -118,6 +126,7 @@ const NOTIF_COUNT_ROUTES = {
   receptionist:   '/receptionist/notifications/count',
   accountant:     '/accountant/notifications/count',
   patient:        '/patient/notifications/count',
+  lab_technician: '/lab/notifications/count',
 };
 const NOTIF_LIST_ROUTES = {
   branch_manager: '/manager/notifications',

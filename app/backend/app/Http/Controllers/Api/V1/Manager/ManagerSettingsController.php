@@ -103,8 +103,10 @@ class ManagerSettingsController extends Controller
 
     $services = \App\Models\Service::where('clinic_id', $user->clinic_id)
         ->where('is_active', true)
+        ->orderBy('display_order')
         ->orderBy('name')
-        ->get(['id', 'name', 'duration_minutes', 'price', 'category']);
+        ->get(['id', 'name', 'duration_minutes', 'price', 'category',
+               'required_specializations', 'booking_type']);
 
     return response()->json([
         'success' => true,

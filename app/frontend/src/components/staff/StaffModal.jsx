@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Upload, User } from 'lucide-react';
+import { X, Upload } from 'lucide-react';
+import apiClient from '../../services/axiosInstance';
 
 // IMPORTANT: Use lowercase values to match backend
 const ROLES = [
@@ -77,6 +78,14 @@ export default function StaffModal({
   const [saving,       setSaving]       = useState(false);
   const [apiError,     setApiError]     = useState('');
   const [tempPassword, setTempPassword] = useState('');
+  const [specializations, setSpecializations] = useState([]);
+
+  // Load specializations from API
+  useEffect(() => {
+    apiClient.get('/admin/specializations')
+      .then(r => setSpecializations(r.data?.data ?? []))
+      .catch(() => setSpecializations([]));
+  }, []);
 
   // ── Initialize from existing member data ─────────────────────
   useEffect(() => {
@@ -459,12 +468,16 @@ export default function StaffModal({
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
                   Specialization
                 </label>
-                <input
+                <select
                   value={form.specialization}
                   onChange={e => set('specialization', e.target.value)}
-                  placeholder="e.g. Orthodontist, Oral Surgeon"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">— Select specialization —</option>
+                  {specializations.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
               </div>
 
               {/* ── WORKING DAYS SECTION (Ethiopian Calendar) ── */}

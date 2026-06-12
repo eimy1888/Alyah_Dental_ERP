@@ -385,6 +385,8 @@ export default function ReceptionistAppointments() {
   useEffect(() => { if (activeTab === 'grid') loadAvailability(); }, [activeTab, date, loadAvailability]);
 
   const handleSaved = (data, warnings = []) => {
+    // Switch list to the appointment's date so it appears immediately
+    if (data?.date) setDate(data.date);
     loadAppointments();
     if (activeTab === 'grid') loadAvailability();
     if (warnings?.length > 0) showToast(warnings[0].message, 'warning');
@@ -447,49 +449,18 @@ export default function ReceptionistAppointments() {
   };
 
   const appointmentsArray = Array.isArray(appointments) ? appointments : [];
-  const todayStr = getEthiopianDate(0);
 
   const counts = {
     total:     appointmentsArray.length,
-    today:     appointmentsArray.filter((a) => a?.date === todayStr).length,
+    today:     appointmentsArray.filter((a) => a?.date === date).length,   // count for the currently viewed date
     pending:   appointmentsArray.filter((a) => ['pending', 'confirmed'].includes(a?.status)).length,
     completed: appointmentsArray.filter((a) => a?.status === 'completed').length,
   };
 
   const isClosed = availability?.is_closed === true;
 
-  // Show closed message for today if clinic is closed
-  if (activeTab === 'grid' && isClosed && !isPastDate) {
-    return (
-      <div className="p-6 space-y-6">
-        <div>
-          <p className="text-xs font-bold tracking-widest text-blue-600 uppercase mb-1">Receptionist</p>
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Appointments</h1>
-              <p className="text-sm text-gray-500 mt-1">Schedule and manage patient appointments.</p>
-            </div>
-            <button
-              onClick={() => { setGridPrefill(null); setModalOpen(true); }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" /> New Appointment
-            </button>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-              <Coffee className="w-8 h-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Clinic Closed</h3>
-            <p className="text-sm text-gray-500">The clinic is closed for today. No more appointments can be booked.</p>
-            <p className="text-xs text-gray-400 mt-2">Please select a different date to schedule appointments.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // NOTE: Do NOT do a full-page replacement when clinic is closed.
+  // The closed state is handled inline inside the grid card instead.
 
   return (
     <div className="p-6 space-y-6">
@@ -540,7 +511,7 @@ export default function ReceptionistAppointments() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'Total',     value: counts.total,     bg: 'bg-blue-50',   color: 'text-blue-600' },
-          { label: 'Today',     value: counts.today,     bg: 'bg-indigo-50', color: 'text-indigo-600' },
+          { label: date === getEthiopianDate(0) ? 'Today' : 'This Date', value: counts.today, bg: 'bg-indigo-50', color: 'text-indigo-600' },
           { label: 'Pending',   value: counts.pending,   bg: 'bg-amber-50',  color: 'text-amber-600' },
           { label: 'Completed', value: counts.completed, bg: 'bg-green-50',  color: 'text-green-600' },
         ].map((k) => (
@@ -678,13 +649,22 @@ export default function ReceptionistAppointments() {
       {/* ── GRID VIEW ── */}
       {activeTab === 'grid' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Inline closed banner — does NOT replace the page */}
+          {isClosed && !isPastDate && (
+            <div className="flex items-center gap-3 px-6 py-3 bg-amber-50 border-b border-amber-100">
+              <Coffee className="w-4 h-4 text-amber-500 shrink-0" />
+              <p className="text-xs text-amber-700 font-semibold">
+                Today's clinic hours have ended. Viewing today's schedule — select a future date to book new appointments.
+              </p>
+            </div>
+          )}
           {gridLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
           ) : (
             <ContinuousGrid 
               availability={availability} 
               onSlotClick={handleGridSlotClick} 
-              isPastDate={isPastDate} 
+              isPastDate={isPastDate}
             />
           )}
         </div>

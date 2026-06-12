@@ -30,6 +30,14 @@ Route::middleware(['cookie.auth'])->prefix('manager')->group(function () {
     // ✅ Only ONE services route — removed duplicate that pointed to Clinic\SettingsController
     Route::get('services', [ManagerSettingsController::class, 'getServices']);
 
+    // ── Specializations (read-only, for dropdowns) ────────────────────────────
+    Route::get('specializations', function (\Illuminate\Http\Request $req) {
+        $specs = \App\Models\Specialization::forClinic($req->user()->clinic_id)
+            ->active()->ordered()
+            ->get(['id','name','short_code','description']);
+        return response()->json(['success' => true, 'data' => $specs]);
+    });
+
     // ── Patients ──────────────────────────────────────────────────────────────
     Route::get('patients',                                    [ManagerPatientController::class, 'index']);
     Route::post('patients',                                   [ManagerPatientController::class, 'store']);

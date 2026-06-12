@@ -21,12 +21,14 @@ class AppointmentType extends Model
         'billing_model',
         'is_active',
         'sort_order',
+        'required_specializations',
     ];
 
     protected $casts = [
         'is_active'                => 'boolean',
         'default_duration_minutes' => 'integer',
         'sort_order'               => 'integer',
+        'required_specializations' => 'array',
     ];
 
     const CATEGORY_GENERAL     = 'general';

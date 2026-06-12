@@ -311,15 +311,17 @@ class SettingsController extends Controller
 
     /**
      * GET /api/v1/clinic/services
-     * Get all services for the clinic
+     * Get all services for the clinic, with their inventory requirements
      */
     public function getServices(): JsonResponse
     {
         $clinic = $this->clinic();
         $services = \App\Models\Service::where('clinic_id', $clinic->id)
+            ->with(['inventoryItems'])
             ->orderBy('display_order')
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(fn($s) => $this->formatService($s));
         
         return response()->json([
             'success' => true,
@@ -329,67 +331,170 @@ class SettingsController extends Controller
 
     /**
      * POST /api/v1/clinic/services
-     * Create a new service
+     * Create a new service with optional inventory requirements
      */
     public function createService(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'category' => 'nullable|string|max:100',
-            'duration_minutes' => 'nullable|integer|min:0',
-            'price' => 'required|numeric|min:0',
-            'icon_url' => 'nullable|string|max:500',
-            'is_published' => 'boolean',
+            'name'                       => 'required|string|max:255',
+            'description'                => 'nullable|string',
+            'category'                   => 'nullable|string|max:100',
+            'duration_minutes'           => 'nullable|integer|min:0',
+            'price'                      => 'required|numeric|min:0',
+            'icon_url'                   => 'nullable|string|max:500',
+            'is_published'               => 'boolean',
+            'booking_type'               => 'nullable|in:service,treatment',
+            'required_specializations'   => 'nullable|array',
+            'required_specializations.*' => 'string|max:100',
+            // Inventory requirements: [{ inventory_item_id, quantity_used, notes }]
+            'inventory_requirements'     => 'nullable|array',
+            'inventory_requirements.*.inventory_item_id' => 'required|exists:inventory_items,id',
+            'inventory_requirements.*.quantity_used'     => 'required|numeric|min:0.01',
+            'inventory_requirements.*.notes'             => 'nullable|string|max:255',
         ]);
         
         $clinic = $this->clinic();
         
         $service = \App\Models\Service::create([
-            'clinic_id' => $clinic->id,
-            'name' => $validated['name'],
-            'description' => $validated['description'] ?? null,
-            'category' => $validated['category'] ?? 'general',
-            'duration_minutes' => $validated['duration_minutes'] ?? 30,
-            'price' => $validated['price'],
-            'icon_url' => $validated['icon_url'] ?? null,
-            'is_published' => $validated['is_published'] ?? true,
-            'display_order' => \App\Models\Service::where('clinic_id', $clinic->id)->count(),
+            'clinic_id'                => $clinic->id,
+            'name'                     => $validated['name'],
+            'description'              => $validated['description'] ?? null,
+            'category'                 => $validated['category'] ?? 'general',
+            'duration_minutes'         => $validated['duration_minutes'] ?? 30,
+            'price'                    => $validated['price'],
+            'icon_url'                 => $validated['icon_url'] ?? null,
+            'is_published'             => $validated['is_published'] ?? true,
+            'display_order'            => \App\Models\Service::where('clinic_id', $clinic->id)->count(),
+            'booking_type'             => $validated['booking_type'] ?? 'service',
+            'required_specializations' => $validated['required_specializations'] ?? [],
         ]);
+
+        // Sync inventory requirements
+        if (!empty($validated['inventory_requirements'])) {
+            $pivot = [];
+            foreach ($validated['inventory_requirements'] as $req) {
+                $pivot[$req['inventory_item_id']] = [
+                    'quantity_used' => $req['quantity_used'],
+                    'notes'         => $req['notes'] ?? null,
+                ];
+            }
+            $service->inventoryItems()->sync($pivot);
+        }
         
+        $service->load('inventoryItems');
+
         return response()->json([
             'success' => true,
             'message' => 'Service created successfully.',
-            'data' => $service,
+            'data'    => $this->formatService($service),
         ], 201);
     }
 
     /**
      * PUT /api/v1/clinic/services/{id}
-     * Update a service
+     * Update a service and its inventory requirements
      */
     public function updateService(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'description' => 'nullable|string',
-            'category' => 'nullable|string|max:100',
-            'duration_minutes' => 'nullable|integer|min:0',
-            'price' => 'sometimes|numeric|min:0',
-            'icon_url' => 'nullable|string|max:500',
-            'is_published' => 'boolean',
+            'name'                       => 'sometimes|string|max:255',
+            'description'                => 'nullable|string',
+            'category'                   => 'nullable|string|max:100',
+            'duration_minutes'           => 'nullable|integer|min:0',
+            'price'                      => 'sometimes|numeric|min:0',
+            'icon_url'                   => 'nullable|string|max:500',
+            'is_published'               => 'boolean',
+            'booking_type'               => 'nullable|in:service,treatment',
+            'required_specializations'   => 'nullable|array',
+            'required_specializations.*' => 'string|max:100',
+            'inventory_requirements'     => 'nullable|array',
+            'inventory_requirements.*.inventory_item_id' => 'required|exists:inventory_items,id',
+            'inventory_requirements.*.quantity_used'     => 'required|numeric|min:0.01',
+            'inventory_requirements.*.notes'             => 'nullable|string|max:255',
         ]);
         
-        $clinic = $this->clinic();
-        
+        $clinic  = $this->clinic();
         $service = \App\Models\Service::where('clinic_id', $clinic->id)->findOrFail($id);
-        $service->update($validated);
+
+        // Update scalar fields
+        $service->update(collect($validated)->except('inventory_requirements')->all());
+
+        // Sync inventory requirements if provided
+        if (array_key_exists('inventory_requirements', $validated)) {
+            if (empty($validated['inventory_requirements'])) {
+                $service->inventoryItems()->detach();
+            } else {
+                $pivot = [];
+                foreach ($validated['inventory_requirements'] as $req) {
+                    $pivot[$req['inventory_item_id']] = [
+                        'quantity_used' => $req['quantity_used'],
+                        'notes'         => $req['notes'] ?? null,
+                    ];
+                }
+                $service->inventoryItems()->sync($pivot);
+            }
+        }
+
+        $service->load('inventoryItems');
         
         return response()->json([
             'success' => true,
             'message' => 'Service updated successfully.',
-            'data' => $service,
+            'data'    => $this->formatService($service),
         ]);
+    }
+
+    /**
+     * GET /api/v1/clinic/inventory-items
+     * Returns a compact list of all inventory items for the service editor dropdown.
+     */
+    public function getInventoryItemsForServices(): JsonResponse
+    {
+        $clinic = $this->clinic();
+        $items  = \App\Models\InventoryItem::where('clinic_id', $clinic->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'sku', 'category', 'current_quantity', 'unit_cost']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items->map(fn($i) => [
+                'id'               => $i->id,
+                'name'             => $i->name,
+                'sku'              => $i->sku,
+                'category'         => $i->category,
+                'current_quantity' => $i->current_quantity,
+                'unit'             => 'units',
+            ]),
+        ]);
+    }
+
+    // ── Private helper: format service with inventory requirements ────────────
+
+    private function formatService(\App\Models\Service $service): array    {
+        return [
+            'id'                       => $service->id,
+            'name'                     => $service->name,
+            'description'              => $service->description,
+            'category'                 => $service->category,
+            'duration_minutes'         => $service->duration_minutes,
+            'price'                    => (float) $service->price,
+            'icon_url'                 => $service->icon_url,
+            'is_published'             => $service->is_published,
+            'billing_model'            => $service->billing_model,
+            'booking_type'             => $service->booking_type ?? 'service',
+            'required_specializations' => $service->required_specializations ?? [],
+            'display_order'            => $service->display_order,
+            'inventory_requirements'   => $service->inventoryItems->map(fn($item) => [
+                'inventory_item_id' => $item->id,
+                'name'              => $item->name,
+                'sku'               => $item->sku,
+                'quantity_used'     => (float) $item->pivot->quantity_used,
+                'notes'             => $item->pivot->notes,
+                'current_stock'     => $item->current_quantity,
+                'unit'              => $item->unit ?? 'units',
+            ])->values()->all(),
+        ];
     }
 
     /**

@@ -38,5 +38,8 @@ Route::prefix('v1')->group(function () {
         // Public showcase routes (no auth)
     require __DIR__ . '/api/v1/public.php';
 
+    // Lab Technician routes
+    require __DIR__ . '/api/v1/lab.php';
+
     
 });

@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Patient;
 use App\Models\User;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\Clinic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -170,50 +169,46 @@ class PatientController extends Controller
         ]);
 
         // ─────────────────────────────────────────────────────────
-        // 3. AUTO-CREATE CLINIC CARD INVOICE
+        // 3. AUTO-CREATE CLINIC CARD INVOICE (idempotent — skip if exists)
+        // Tax is always applied on the card fee
         // ─────────────────────────────────────────────────────────
-        $clinic = Clinic::find($clinicId);
-        $cardPrice = $clinic ? $clinic->getCardPrice() : 100;
+        $existingCardInvoice = Invoice::where('patient_id', $patient->id)
+            ->where('invoice_type', Invoice::TYPE_CARD)
+            ->first();
 
-        $invoiceNumber = Invoice::generateNumber($clinicId);
+        $cardInvoiceData = null;
 
-        $invoice = Invoice::create([
-            'clinic_id'      => $clinicId,
-            'branch_id'      => $branchId,
-            'patient_id'     => $patient->id,
-            'appointment_id' => null,
-            'created_by'     => $user->id,
-            'invoice_number' => $invoiceNumber,
-            'total'          => $cardPrice,
-            'paid'           => 0,
-            'balance'        => $cardPrice,
-            'status'         => 'sent',
-            'issued_at'      => now(),
-            'due_date'       => now()->addDays(15),
-            'notes'          => 'Clinic Card (Membership) - Payment required to activate card',
-        ]);
+        if (!$existingCardInvoice) {
+            $clinic    = Clinic::find($clinicId);
+            $cardPrice = $clinic ? $clinic->getCardPrice() : 100;
 
-        // Add invoice item for clinic card
-        InvoiceItem::create([
-            'invoice_id'  => $invoice->id,
-            'description' => 'Clinic Card (Membership) - One-time registration fee',
-            'quantity'    => 1,
-            'unit_price'  => $cardPrice,
-            'total'       => $cardPrice,
-        ]);
+            $cardInvoice = Invoice::createCardInvoiceForPatient($patient, $user, $cardPrice);
+
+            $cardInvoiceData = [
+                'id'             => $cardInvoice->id,
+                'invoice_number' => $cardInvoice->invoice_number,
+                'amount'         => (float) $cardInvoice->total,   // includes tax
+                'status'         => $cardInvoice->status,
+            ];
+        } else {
+            $cardInvoiceData = [
+                'id'             => $existingCardInvoice->id,
+                'invoice_number' => $existingCardInvoice->invoice_number,
+                'amount'         => $existingCardInvoice->total,
+                'status'         => $existingCardInvoice->status,
+                'already_exists' => true,
+            ];
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Patient registered successfully.' .
                 ($portalUser ? ' Portal login created.' : '') .
-                " Clinic card invoice created (ETB {$cardPrice}). Card will activate after payment.",
+                ($cardInvoiceData && !($cardInvoiceData['already_exists'] ?? false)
+                    ? " Clinic card invoice created (ETB {$cardInvoiceData['amount']}). Card will activate after payment."
+                    : ''),
             'data'    => array_merge($patient->load('branch:id,name')->toApiArray(), [
-                'card_invoice' => [
-                    'id'             => $invoice->id,
-                    'invoice_number' => $invoice->invoice_number,
-                    'amount'         => $cardPrice,
-                    'status'         => $invoice->status,
-                ],
+                'card_invoice' => $cardInvoiceData,
             ]),
         ], 201);
     }

@@ -51,90 +51,29 @@ class AppointmentBillingController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // RECORD PRE-PAYMENT (deposit before treatment complete)
     // POST /receptionist/appointments/{id}/billing/prepay
+    // DISABLED: All payments must be processed by the accountant
     // ─────────────────────────────────────────────────────────────────────────
     public function recordPrePayment(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $request->validate([
-            'amount'         => 'required|numeric|min:0.01',
-            'payment_method' => 'required|in:cash,telebirr,bank_transfer',
-            'invoice_type'   => 'nullable|in:service,treatment',
-            'reference'      => 'nullable|string|max:255',
-        ]);
-
-        $appointment = Appointment::where('clinic_id', $user->clinic_id)
-            ->where('branch_id', $user->branch_id)
-            ->findOrFail($id);
-
-        // Determine which invoice to apply pre-payment to
-        $invoiceType = $request->invoice_type ?? 'service';
-        $invoice = $invoiceType === 'service'
-            ? ($appointment->serviceInvoice ?? $appointment->getActiveTreatmentInvoice())
-            : $appointment->getActiveTreatmentInvoice();
-
-        if (!$invoice) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No invoice found for this appointment.',
-                'code'    => 'NO_INVOICE',
-            ], 404);
-        }
-
-        $result = $this->lifecycle->recordPrePayment(
-            $invoice,
-            (float) $request->amount,
-            $request->payment_method,
-            $user,
-            $request->reference ?? ''
-        );
-
-        if (!$result['success']) {
-            return response()->json($result, 422);
-        }
-
         return response()->json([
-            'success' => true,
-            'message' => $result['message'],
-            'data'    => $result['data'],
-        ]);
+            'success' => false,
+            'message' => 'All payments must be processed by the accountant. Please direct the patient to the accounts department.',
+            'code'    => 'PAYMENT_NOT_ALLOWED',
+        ], 403);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // RECORD FINAL PAYMENT
     // POST /receptionist/invoices/{id}/pay
+    // DISABLED: All payments must be processed by the accountant
     // ─────────────────────────────────────────────────────────────────────────
     public function recordPayment(Request $request, int $id): JsonResponse
     {
-        $user = $request->user();
-
-        $request->validate([
-            'amount'         => 'required|numeric|min:0.01',
-            'payment_method' => 'required|in:cash,telebirr,bank_transfer',
-            'reference'      => 'nullable|string|max:255',
-        ]);
-
-        $invoice = Invoice::where('clinic_id', $user->clinic_id)
-            ->where('branch_id', $user->branch_id)
-            ->findOrFail($id);
-
-        $result = $this->lifecycle->recordPayment(
-            $invoice,
-            (float) $request->amount,
-            $request->payment_method,
-            $user,
-            $request->reference ?? ''
-        );
-
-        if (!$result['success']) {
-            return response()->json($result, 422);
-        }
-
         return response()->json([
-            'success' => true,
-            'message' => $result['message'],
-            'data'    => $result['data'],
-        ]);
+            'success' => false,
+            'message' => 'All payments must be processed by the accountant. Please direct the patient to the accounts department.',
+            'code'    => 'PAYMENT_NOT_ALLOWED',
+        ], 403);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

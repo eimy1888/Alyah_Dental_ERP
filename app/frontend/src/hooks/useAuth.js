@@ -169,6 +169,7 @@ const ROLE_REDIRECTS = {
   receptionist:   '/receptionist/dashboard',
   dentist:        '/dentist/dashboard',
   patient:        '/patient/dashboard',
+  lab_technician: '/lab/dashboard',
 };
 
 export const useAuth = () => {

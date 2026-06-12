@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, CreditCard, Printer, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getInvoices, createInvoice, recordPayment, getPatients } from '../../services/receptionistService';
-import { StatusBadge, SkeletonTable, PageHeader, EmptyState, ConfirmDialog, SectionCard } from '../../components/ui/DashCard';
+import { Plus, X, Printer, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
+import { getInvoices, createInvoice, getPatients } from '../../services/receptionistService';
+import { StatusBadge, SkeletonTable, PageHeader, EmptyState, SectionCard } from '../../components/ui/DashCard';
 import { useToast } from '../../components/ui/Toast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n) => `ETB ${Number(n || 0).toLocaleString()}`;
 
-// ── Modal backdrop wrapper ─────────────────────────────────────────────────
+// ── Modal backdrop wrapper ────────────────────────────────────────────────────
 function Modal({ open, onClose, children }) {
   return (
     <AnimatePresence>
@@ -40,7 +40,7 @@ function Modal({ open, onClose, children }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Billing() {
-  const { success, error: toastError, warning } = useToast();
+  const { success, error: toastError } = useToast();
 
   const [invoices,    setInvoices]    = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -49,25 +49,17 @@ export default function Billing() {
 
   // Modals
   const [showCreate,  setShowCreate]  = useState(false);
-  const [showPay,     setShowPay]     = useState(false);
-  const [selectedInv, setSelectedInv] = useState(null);
-
-  // Confirm cancel dialog
-  const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Create form
-  const [patients,           setPatients]           = useState([]);
-  const [patientSearch,      setPatientSearch]      = useState('');
-  const [showPatientDrop,    setShowPatientDrop]    = useState(false);
-  const [submitting,         setSubmitting]         = useState(false);
+  const [patients,        setPatients]        = useState([]);
+  const [patientSearch,   setPatientSearch]   = useState('');
+  const [showPatientDrop, setShowPatientDrop] = useState(false);
+  const [submitting,      setSubmitting]      = useState(false);
   const [formData, setFormData] = useState({
     patient_id: '',
     items:      [{ description: '', quantity: 1, unit_price: 0 }],
     due_date:   '',
   });
-
-  // Pay form
-  const [payData, setPayData] = useState({ amount: '', payment_method: 'cash', reference: '' });
 
   // PDF loading state
   const [printingId, setPrintingId] = useState(null);
@@ -133,45 +125,17 @@ export default function Billing() {
 
   const calcTotal = () => {
     const sub = formData.items.reduce((s, item) => s + (Number(item.quantity) * Number(item.unit_price)), 0);
-    return sub * 1.15;
-  };
-
-  // ── Record payment ──────────────────────────────────────────────────────────
-  const handlePayment = async (e) => {
-    e.preventDefault();
-    const amt = Number(payData.amount);
-    if (!amt || amt <= 0)            { toastError('Enter a valid amount.');                                    return; }
-    if (amt > selectedInv?.balance)  { toastError(`Max payable: ${fmt(selectedInv?.balance)}`);               return; }
-
-    setSubmitting(true);
-    try {
-      await recordPayment(selectedInv.id, {
-        amount:         amt,
-        payment_method: payData.payment_method,
-        reference:      payData.reference || undefined,
-      });
-      success('Payment recorded.' + (selectedInv.isCardInvoice ? ' Clinic card activated.' : ''));
-      setShowPay(false);
-      setSelectedInv(null);
-      setPayData({ amount: '', payment_method: 'cash', reference: '' });
-      loadInvoices();
-    } catch (err) {
-      toastError(err?.response?.data?.message || 'Payment failed.');
-    } finally {
-      setSubmitting(false);
-    }
+    const taxRate = 0.15;
+    return { subtotal: sub, tax: sub * taxRate, total: sub * (1 + taxRate) };
   };
 
   // ── Print / PDF ─────────────────────────────────────────────────────────────
   const handlePrint = async (inv) => {
     setPrintingId(inv.id);
     try {
-      // Opens the HTML invoice in a new tab — user can Ctrl+P to print / save as PDF
       const url = `/api/v1/receptionist/invoices/${inv.id}/pdf`;
       const win = window.open(url, '_blank');
-      if (!win) {
-        warning('Pop-up blocked. Please allow pop-ups for this site.');
-      }
+      if (!win) toastError('Pop-up blocked. Please allow pop-ups for this site.');
     } finally {
       setPrintingId(null);
     }
@@ -197,8 +161,19 @@ export default function Billing() {
         }
       />
 
+      {/* Payment info banner */}
+      <div className="flex items-start gap-3 px-5 py-4 rounded-2xl bg-amber-50 border border-amber-200">
+        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-[13px] font-bold text-amber-800">Payments processed by Accountant</p>
+          <p className="text-[12px] text-amber-700 mt-0.5">
+            Receptionists can view and create invoices only. To record a payment, please direct the patient to the Accounts Department.
+          </p>
+        </div>
+      </div>
+
       {/* Invoices table */}
-      <SectionCard title="Invoices" subtitle="All invoices for this branch">
+      <SectionCard title="Invoices" subtitle="All invoices for this branch — view only">
         {loading ? (
           <SkeletonTable rows={6} cols={7} />
         ) : invoices.length === 0 ? (
@@ -231,29 +206,37 @@ export default function Billing() {
                         {inv.patient?.full_name || '—'}
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 capitalize">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold capitalize ${
+                          inv.invoice_type === 'card'      ? 'bg-purple-100 text-purple-700' :
+                          inv.invoice_type === 'treatment' ? 'bg-amber-100 text-amber-700'   :
+                          inv.invoice_type === 'hybrid'    ? 'bg-indigo-100 text-indigo-700' :
+                                                             'bg-gray-100 text-gray-600'
+                        }`}>
                           {inv.invoice_type || 'service'}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 font-bold text-gray-900">{fmt(inv.amount || inv.total)}</td>
+                      <td className="px-5 py-3.5">
+                        <div>
+                          <span className="font-bold text-gray-900">{fmt(inv.amount || inv.total)}</span>
+                          {inv.tax_amount > 0 && (
+                            <span className="text-[10px] text-gray-400 ml-1">
+                              (incl. {fmt(inv.tax_amount)} VAT)
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-5 py-3.5 font-semibold text-amber-600">{fmt(inv.balance)}</td>
                       <td className="px-5 py-3.5">
                         <StatusBadge status={inv.lifecycle_status || inv.status} />
                       </td>
                       <td className="px-5 py-3.5 text-gray-400 text-[12px]">{inv.issued_at}</td>
                       <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-1">
-                          {/* Pay button */}
+                        <div className="flex items-center gap-2">
+                          {/* Payment info badge (view only — no action) */}
                           {inv.status !== 'paid' && (
-                            <motion.button
-                              whileHover={{ scale: 1.08 }}
-                              whileTap={{ scale: 0.94 }}
-                              onClick={() => { setSelectedInv(inv); setShowPay(true); }}
-                              title="Record payment"
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-                            >
-                              <CreditCard className="w-4 h-4" />
-                            </motion.button>
+                            <span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-500 font-semibold whitespace-nowrap">
+                              Acct. Dept
+                            </span>
                           )}
                           {/* Print / PDF */}
                           <motion.button
@@ -437,9 +420,19 @@ export default function Billing() {
             </div>
 
             {/* Total */}
-            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
-              <span className="text-[13px] font-semibold text-blue-800">Total (incl. 15% VAT)</span>
-              <span className="text-[16px] font-black text-blue-700">{fmt(calcTotal())}</span>
+            <div className="flex flex-col gap-1 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-blue-600">Subtotal</span>
+                <span className="text-[13px] font-semibold text-blue-700">{fmt(calcTotal().subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-blue-600">VAT (15%)</span>
+                <span className="text-[13px] font-semibold text-blue-700">{fmt(calcTotal().tax)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-blue-200 pt-1 mt-1">
+                <span className="text-[13px] font-bold text-blue-800">Total</span>
+                <span className="text-[16px] font-black text-blue-700">{fmt(calcTotal().total)}</span>
+              </div>
             </div>
 
             {/* Actions */}
@@ -457,103 +450,6 @@ export default function Billing() {
                 className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-700 disabled:opacity-60 transition-colors"
               >
                 {submitting ? 'Creating…' : 'Create Invoice'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </Modal>
-
-      {/* ── Record Payment Modal ───────────────────────────────────────────── */}
-      <Modal open={showPay} onClose={() => { setShowPay(false); setSelectedInv(null); }}>
-        <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <div>
-              <h3 className="text-[15px] font-black text-gray-900">Record Payment</h3>
-              <p className="text-[11px] text-gray-400 mt-0.5">{selectedInv?.invoice_number}</p>
-            </div>
-            <button onClick={() => { setShowPay(false); setSelectedInv(null); }} className="p-1.5 rounded-xl hover:bg-gray-100 transition-colors">
-              <X className="w-4 h-4 text-gray-500" />
-            </button>
-          </div>
-
-          <form onSubmit={handlePayment} className="p-6 space-y-5">
-            {/* Balance display */}
-            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-amber-50 border border-amber-100">
-              <span className="text-[12px] font-semibold text-amber-800">Outstanding Balance</span>
-              <span className="text-[16px] font-black text-amber-700">{fmt(selectedInv?.balance)}</span>
-            </div>
-
-            {/* Amount */}
-            <div>
-              <label className="block text-[11px] font-black text-gray-500 uppercase tracking-[0.14em] mb-1.5">
-                Amount *
-              </label>
-              <input
-                type="number" step="0.01" min="0.01"
-                max={selectedInv?.balance}
-                value={payData.amount}
-                onChange={e => setPayData(d => ({ ...d, amount: e.target.value }))}
-                placeholder="Enter amount…"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-[13px] outline-none focus:border-blue-400 transition-colors"
-              />
-            </div>
-
-            {/* Method */}
-            <div>
-              <label className="block text-[11px] font-black text-gray-500 uppercase tracking-[0.14em] mb-1.5">
-                Payment Method
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { value: 'cash',          label: 'Cash' },
-                  { value: 'telebirr',      label: 'Telebirr' },
-                  { value: 'bank_transfer', label: 'Bank' },
-                ].map(m => (
-                  <button
-                    key={m.value}
-                    type="button"
-                    onClick={() => setPayData(d => ({ ...d, payment_method: m.value }))}
-                    className={`py-2.5 rounded-xl text-[12px] font-semibold border transition-all ${
-                      payData.payment_method === m.value
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Reference */}
-            <div>
-              <label className="block text-[11px] font-black text-gray-500 uppercase tracking-[0.14em] mb-1.5">
-                Reference <span className="text-gray-300 font-normal normal-case">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={payData.reference}
-                onChange={e => setPayData(d => ({ ...d, reference: e.target.value }))}
-                placeholder="Transaction ID, receipt no…"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-[13px] outline-none focus:border-blue-400 transition-colors"
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => { setShowPay(false); setSelectedInv(null); }}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-green-600 text-white text-[13px] font-bold hover:bg-green-700 disabled:opacity-60 transition-colors"
-              >
-                {submitting ? 'Processing…' : 'Record Payment'}
               </button>
             </div>
           </form>

@@ -105,13 +105,13 @@ class ManagerAppointmentController extends Controller
         $branchId = $manager->branch_id;
 
         $request->validate([
-            'patient_id'       => 'required|integer|exists:patients,id',
-            'dentist_id'       => 'required|integer|exists:staff,id',
-            'appointment_time' => 'required|date',
-            'duration_minutes' => 'nullable|integer|min:15|max:180',
-            'type'             => 'required|string|max:100',
-            'notes'            => 'nullable|string|max:1000',
-            'status'           => [
+            'patient_id'          => 'required|integer|exists:patients,id',
+            'dentist_id'          => 'required|integer|exists:staff,id',
+            'appointment_time'    => 'required|date',
+            'duration_minutes'    => 'nullable|integer|min:15|max:180',
+            'type'                => 'required|string|max:100',
+            'notes'               => 'nullable|string|max:1000',
+            'status'              => [
                 'nullable',
                 Rule::in([
                     'pending', 'confirmed', 'checked_in',
@@ -119,8 +119,9 @@ class ManagerAppointmentController extends Controller
                 ]),
             ],
             // v2 billing
-            'service_id'    => 'nullable|exists:services,id',
-            'billing_model' => 'nullable|in:service,treatment,hybrid',
+            'service_id'          => 'nullable|exists:services,id',
+            'billing_model'       => 'nullable|in:service,treatment,hybrid',
+            'appointment_type_id' => 'nullable|exists:appointment_types,id',
         ]);
 
         // ─────────────────────────────────────────────────────────
@@ -217,20 +218,21 @@ class ManagerAppointmentController extends Controller
         }
 
         $appointment = Appointment::create([
-            'clinic_id'        => $clinicId,
-            'branch_id'        => $branchId,
-            'patient_id'       => $patient->id,
-            'dentist_id'       => $dentistUserId,
-            'appointment_time' => $appointmentTime,
-            'duration_minutes' => $duration,
-            'type'             => $request->type,
-            'notes'            => $request->notes,
-            'status'           => $request->status ?? 'confirmed',
-            'created_by'       => $manager->id,
-            'is_notified'      => false,
+            'clinic_id'           => $clinicId,
+            'branch_id'           => $branchId,
+            'patient_id'          => $patient->id,
+            'dentist_id'          => $dentistUserId,
+            'appointment_time'    => $appointmentTime,
+            'duration_minutes'    => $duration,
+            'type'                => $request->type,
+            'notes'               => $request->notes,
+            'status'              => $request->status ?? 'confirmed',
+            'created_by'          => $manager->id,
+            'is_notified'         => false,
             // v2 billing
-            'service_id'    => $request->service_id ?? null,
-            'billing_model' => $request->billing_model ?? null,
+            'service_id'          => $request->service_id ?? null,
+            'billing_model'       => $request->billing_model ?? null,
+            'appointment_type_id' => $request->appointment_type_id ?? null,
         ]);
 
         $appointment->load(['patient', 'dentist', 'service']);

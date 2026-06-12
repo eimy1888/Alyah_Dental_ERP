@@ -3,7 +3,7 @@ import {
   Search, X, Eye, Download, Clock, Users,
   Activity, CheckCircle, RefreshCw, Loader2,
   CalendarDays, List, LayoutGrid, ChevronRight, Stethoscope,
-  Play,
+  Play, FlaskConical,
 } from 'lucide-react';
 import {
   getAppointments,
@@ -13,6 +13,7 @@ import {
   getDentistQueue,
   callNextPatient,
 } from '../../services/dentistService';
+import apiClient from '../../services/axiosInstance';
 import ReferralModal from '../../components/dentist/ReferralModal';
 import ProcedureModal from '../../components/dentist/ProcedureModal';
 
@@ -111,6 +112,146 @@ function DetailModal({ appointment, onClose }) {
   );
 }
 
+// ── Lab Order Modal ──────────────────────────────────────────────────────────
+const LAB_ORDER_TYPES = [
+  { value: 'crown',        label: 'Crown' },
+  { value: 'bridge',       label: 'Bridge' },
+  { value: 'denture',      label: 'Denture' },
+  { value: 'aligner',      label: 'Aligner' },
+  { value: 'veneer',       label: 'Veneer' },
+  { value: 'implant_crown',label: 'Implant Crown' },
+  { value: 'diagnostic',   label: 'Diagnostic' },
+  { value: 'other',        label: 'Other' },
+];
+
+function LabOrderModal({ appointment, onClose, onSuccess }) {
+  const [form, setForm] = useState({
+    order_type: 'crown',
+    material: '',
+    tooth_numbers: '',
+    instructions: '',
+    expected_ready_date: '',
+    fitting_specialist_id: '',
+  });
+  const [specialists, setSpecialists] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiClient.get('/dentist/settings/services').catch(() => {});
+    // Load dentists/specialists from clinic
+    apiClient.get('/dentist/referral/dentists').then(r => {
+      setSpecialists(r.data?.data ?? []);
+    }).catch(() => {});
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const toothArr = form.tooth_numbers
+        ? form.tooth_numbers.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+      await apiClient.post('/dentist/lab-orders', {
+        appointment_id: appointment.id,
+        order_type: form.order_type,
+        material: form.material || undefined,
+        tooth_numbers: toothArr.length ? toothArr : undefined,
+        instructions: form.instructions || undefined,
+        expected_ready_date: form.expected_ready_date || undefined,
+        fitting_specialist_id: form.fitting_specialist_id || undefined,
+      });
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to create lab order.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 flex items-center justify-between p-5 border-b border-gray-100 bg-white rounded-t-2xl">
+          <div>
+            <p className="text-xs text-gray-400">Create Lab Order</p>
+            <h3 className="text-base font-bold text-gray-900">{appointment.patient_name}</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4 text-gray-500" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {error && <p className="text-xs text-red-500 bg-red-50 p-3 rounded-xl">{error}</p>}
+
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Order Type *</label>
+            <select value={form.order_type} onChange={e => setForm(f => ({...f, order_type: e.target.value}))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400">
+              {LAB_ORDER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Material</label>
+            <input type="text" placeholder="e.g. Zirconia, PFM, Acrylic…" value={form.material}
+              onChange={e => setForm(f => ({...f, material: e.target.value}))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400" />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+              Tooth Numbers <span className="font-normal normal-case text-gray-400">(comma-separated)</span>
+            </label>
+            <input type="text" placeholder="e.g. 11, 12, 21" value={form.tooth_numbers}
+              onChange={e => setForm(f => ({...f, tooth_numbers: e.target.value}))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400" />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Instructions</label>
+            <textarea rows={3} placeholder="Special instructions for the lab…" value={form.instructions}
+              onChange={e => setForm(f => ({...f, instructions: e.target.value}))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400 resize-none" />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Expected Ready Date</label>
+            <input type="date" value={form.expected_ready_date}
+              onChange={e => setForm(f => ({...f, expected_ready_date: e.target.value}))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400" />
+          </div>
+
+          {specialists.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                Fitting Specialist <span className="font-normal normal-case">(optional)</span>
+              </label>
+              <select value={form.fitting_specialist_id}
+                onChange={e => setForm(f => ({...f, fitting_specialist_id: e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400">
+                <option value="">— None —</option>
+                {specialists.map(s => <option key={s.id} value={s.id}>Dr. {s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-60">
+              {saving ? 'Creating…' : 'Create Lab Order'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function RescheduleModal({ appointment, onClose, onReschedule }) {
   const [newDateTime, setNewDateTime] = useState('');
   const [loading, setLoading]         = useState(false);
@@ -163,6 +304,7 @@ export default function MyAppointments() {
   const [detailAppt,     setDetailAppt]     = useState(null);
   const [referralModal,  setReferralModal]  = useState(null);
   const [procedureModal, setProcedureModal] = useState(null);
+  const [labOrderModal,  setLabOrderModal]  = useState(null);
   const [toast,          setToast]          = useState(null);
   const [pagination,     setPagination]     = useState({ current_page: 1, last_page: 1, total: 0 });
   const [showQueue,      setShowQueue]      = useState(true);
@@ -370,6 +512,10 @@ export default function MyAppointments() {
             loadQueue();
           }} />
       )}
+      {labOrderModal && (
+        <LabOrderModal appointment={labOrderModal} onClose={() => setLabOrderModal(null)}
+          onSuccess={() => showToast('Lab order created successfully!')} />
+      )}
 
       {/* Header */}
       <div>
@@ -573,10 +719,17 @@ export default function MyAppointments() {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <button onClick={() => setDetailAppt(appt)}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setLabOrderModal(appt)}
+                          title="Create lab order"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                          <FlaskConical className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setDetailAppt(appt)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -639,9 +792,16 @@ export default function MyAppointments() {
                     </button>
                   )}
                 </div>
-                <button onClick={() => setDetailAppt(appt)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50">
-                  <Eye className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setLabOrderModal(appt)}
+                    title="Create lab order"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50">
+                    <FlaskConical className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setDetailAppt(appt)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50">
+                    <Eye className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

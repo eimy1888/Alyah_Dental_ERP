@@ -152,190 +152,341 @@ function SocialInput({ platform, label, value, onChange }) {
 }
 
 // ── Service Modal ─────────────────────────────────────────────────────────────
-function ServiceModal({ service, onClose, onSave, saving }) {
+function ServiceModal({ service, onClose, onSave, saving, inventoryItems = [], allSpecializations = [] }) {
+  // Helper: ensure value is always an array (guard against JSON strings from API)
+  const toArr = (v) => {
+    if (!v) return [];
+    if (Array.isArray(v)) return v;
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
+  };
+
   const isEdit = !!service;
   const [form, setForm] = useState({
-    name: service?.name || '',
-    description: service?.description || '',
-    category: service?.category || 'general',
-    duration_minutes: service?.duration_minutes || 30,
-    price: service?.price || '',
-    icon_url: service?.icon_url || '',
-    is_published: service?.is_published ?? true,
+    name:                     service?.name || '',
+    description:              service?.description || '',
+    category:                 service?.category || 'general',
+    booking_type:             service?.booking_type || 'service',
+    duration_minutes:         service?.duration_minutes || 30,
+    price:                    service?.price || '',
+    icon_url:                 service?.icon_url || '',
+    is_published:             service?.is_published ?? true,
+    required_specializations: toArr(service?.required_specializations),
+    inventory_requirements:   toArr(service?.inventory_requirements).map(r => ({
+      inventory_item_id: r.inventory_item_id,
+      quantity_used:     r.quantity_used,
+      notes:             r.notes || '',
+    })),
   });
-  const [errors, setErrors] = useState({});
-  const [iconType, setIconType] = useState(service?.icon_url?.startsWith('http') ? 'url' : 'icon');
+  const [errors,    setErrors]    = useState({});
+  const [iconType,  setIconType]  = useState(service?.icon_url?.startsWith('http') ? 'url' : 'icon');
+  const [specInput, setSpecInput] = useState('');
 
   const set = (k, v) => {
     setForm(p => ({ ...p, [k]: v }));
     setErrors(p => ({ ...p, [k]: '' }));
   };
 
+  const addSpec = (spec) => {
+    if (!spec.trim()) return;
+    if (form.required_specializations.includes(spec)) return;
+    set('required_specializations', [...form.required_specializations, spec]);
+    setSpecInput('');
+  };
+
+  const removeSpec = (spec) => {
+    set('required_specializations', form.required_specializations.filter(s => s !== spec));
+  };
+
+  const addInventoryRequirement = () => {
+    set('inventory_requirements', [
+      ...form.inventory_requirements,
+      { inventory_item_id: '', quantity_used: 1, notes: '' },
+    ]);
+  };
+
+  const updateInventoryRequirement = (idx, field, value) => {
+    const updated = [...form.inventory_requirements];
+    updated[idx] = { ...updated[idx], [field]: value };
+    set('inventory_requirements', updated);
+  };
+
+  const removeInventoryRequirement = (idx) => {
+    set('inventory_requirements', form.inventory_requirements.filter((_, i) => i !== idx));
+  };
+
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = 'Service name is required';
     if (!form.price) e.price = 'Price is required';
+    form.inventory_requirements.forEach((r, i) => {
+      if (!r.inventory_item_id) e[`inv_${i}`] = 'Select an item';
+      if (!r.quantity_used || r.quantity_used <= 0) e[`qty_${i}`] = 'Qty must be > 0';
+    });
     return e;
   };
 
   const handleSubmit = () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    onSave(isEdit ? { id: service.id, ...form } : form);
+    const payload = {
+      ...form,
+      inventory_requirements: form.inventory_requirements
+        .filter(r => r.inventory_item_id)
+        .map(r => ({
+          inventory_item_id: Number(r.inventory_item_id),
+          quantity_used:     Number(r.quantity_used),
+          notes:             r.notes || null,
+        })),
+    };
+    onSave(isEdit ? { id: service.id, ...payload } : payload);
   };
 
   const getIconPreview = () => {
     const found = SERVICE_ICONS.find(i => i.value === form.icon_url);
-    if (found && found.icon) {
-      const IconComp = found.icon;
-      return <IconComp className="w-5 h-5 text-blue-600" />;
-    }
+    if (found && found.icon) { const I = found.icon; return <I className="w-5 h-5 text-blue-600" />; }
     return null;
   };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl">
+
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <h3 className="text-base font-bold text-gray-900">
-            {isEdit ? 'Edit Service' : 'Add New Service'}
+            {isEdit ? 'Edit Service / Treatment' : 'Add Service / Treatment'}
           </h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
             <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Service Name *
+
+        <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+
+          {/* ── Booking type ── */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Type
             </label>
-            <input
-              value={form.name}
-              onChange={e => set('name', e.target.value)}
-              className={`w-full px-4 py-2 rounded-xl border text-sm focus:border-blue-400 ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
-            />
-            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { v: 'service',   label: 'Service',   desc: 'Fixed price, billed at booking' },
+                { v: 'treatment', label: 'Treatment',  desc: 'Dynamic billing by dentist' },
+              ].map(({ v, label, desc }) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => set('booking_type', v)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    form.booking_type === v
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-200'
+                  }`}
+                >
+                  <p className={`text-sm font-bold ${form.booking_type === v ? 'text-blue-700' : 'text-gray-700'}`}>{label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Description
-            </label>
-            <textarea
-              value={form.description}
-              onChange={e => set('description', e.target.value)}
-              rows={3}
-              className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400 resize-none"
-            />
-          </div>
-
+          {/* ── Name + Category ── */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="mb-4">
+            <div className="col-span-2">
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Category
+                Name <span className="text-red-500">*</span>
               </label>
-              <select
-                value={form.category}
-                onChange={e => set('category', e.target.value)}
-                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400"
-              >
-                {SERVICE_CATEGORIES.map(c => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
+              <input
+                value={form.name}
+                onChange={e => set('name', e.target.value)}
+                placeholder="e.g. Root Canal Treatment"
+                className={`w-full px-4 py-2 rounded-xl border text-sm focus:border-blue-400 outline-none ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
+              />
+              {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Category</label>
+              <select value={form.category} onChange={e => set('category', e.target.value)}
+                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400 outline-none bg-white">
+                {SERVICE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </div>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Duration (minutes)
-              </label>
-              <input
-                type="number"
-                value={form.duration_minutes}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Duration (min)</label>
+              <input type="number" value={form.duration_minutes} min="5"
                 onChange={e => set('duration_minutes', parseInt(e.target.value) || 0)}
-                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400"
-              />
+                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400 outline-none" />
             </div>
           </div>
 
+          {/* ── Price + Published ── */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="mb-4">
+            <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Price (ETB) *
+                Price (ETB) <span className="text-red-500">*</span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                value={form.price}
-                onChange={e => set('price', e.target.value)}
-                className={`w-full px-4 py-2 rounded-xl border text-sm focus:border-blue-400 ${errors.price ? 'border-red-300' : 'border-gray-200'}`}
-              />
+              <input type="number" step="0.01" value={form.price} onChange={e => set('price', e.target.value)}
+                className={`w-full px-4 py-2 rounded-xl border text-sm focus:border-blue-400 outline-none ${errors.price ? 'border-red-300' : 'border-gray-200'}`} />
               {errors.price && <p className="text-xs text-red-500 mt-1">{errors.price}</p>}
             </div>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Published
-              </label>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Published</label>
               <div className="flex items-center gap-3 pt-2">
-                <Toggle enabled={form.is_published} onChange={(v) => set('is_published', v)} />
-                <span className="text-sm text-gray-500">{form.is_published ? 'Visible on website' : 'Hidden'}</span>
+                <Toggle enabled={form.is_published} onChange={v => set('is_published', v)} />
+                <span className="text-sm text-gray-500">{form.is_published ? 'Visible' : 'Hidden'}</span>
               </div>
             </div>
           </div>
 
-          <div className="mb-4">
+          {/* ── Description ── */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Description</label>
+            <textarea value={form.description} onChange={e => set('description', e.target.value)}
+              rows={2} placeholder="What this service involves..."
+              className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400 outline-none resize-none" />
+          </div>
+
+          {/* ── Required specializations ── */}
+          <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Icon
+              Required Specialization
+              <span className="text-gray-400 font-normal ml-1">(who can perform this)</span>
             </label>
             <div className="flex gap-2 mb-2">
-              <button
-                type="button"
-                onClick={() => setIconType('icon')}
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${iconType === 'icon' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}
-              >
-                Select Icon
+              <select value={specInput} onChange={e => setSpecInput(e.target.value)}
+                className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none bg-white">
+                <option value="">— Pick specialization —</option>
+                {(allSpecializations.length > 0
+                  ? allSpecializations.map(s => s.name)
+                  : ['General Dentistry','Orthodontist','Oral Surgeon','Endodontist','Periodontist','Prosthodontist','Pediatric Dentist','Cosmetic Dentist']
+                ).filter(s => !form.required_specializations.includes(s)).map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <button type="button" onClick={() => addSpec(specInput)}
+                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                Add
               </button>
-              <button
-                type="button"
-                onClick={() => setIconType('url')}
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${iconType === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}
-              >
-                Enter URL
+            </div>
+            {form.required_specializations.length === 0 ? (
+              <p className="text-xs text-gray-400">No restriction — any dentist can perform this.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {form.required_specializations.map(spec => (
+                  <span key={spec} className="flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                    {spec}
+                    <button type="button" onClick={() => removeSpec(spec)} className="hover:text-blue-900 ml-0.5">×</button>
+                  </span>
+                ))}
+              </div>
+            )}          </div>
+
+          {/* ── Inventory requirements ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Inventory Consumed Per Procedure
+                </label>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  These items are automatically deducted when this procedure is completed.
+                </p>
+              </div>
+              <button type="button" onClick={addInventoryRequirement}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-green-50 text-green-700 text-xs font-semibold border border-green-200 hover:bg-green-100">
+                <Plus className="w-3 h-3" /> Add Item
               </button>
+            </div>
+
+            {form.inventory_requirements.length === 0 ? (
+              <div className="px-4 py-3 rounded-xl bg-gray-50 border border-dashed border-gray-200 text-xs text-gray-400 text-center">
+                No inventory items linked. Click "Add Item" to link supplies.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {form.inventory_requirements.map((req, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_100px_1fr_32px] gap-2 items-start">
+                    {/* Item select */}
+                    <div>
+                      <select
+                        value={req.inventory_item_id}
+                        onChange={e => updateInventoryRequirement(idx, 'inventory_item_id', e.target.value)}
+                        className={`w-full px-3 py-2 rounded-xl border text-sm outline-none bg-white ${errors[`inv_${idx}`] ? 'border-red-300' : 'border-gray-200'}`}
+                      >
+                        <option value="">Select item...</option>
+                        {inventoryItems.map(item => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.sku}) — {item.current_quantity} in stock
+                          </option>
+                        ))}
+                      </select>
+                      {errors[`inv_${idx}`] && <p className="text-[10px] text-red-500 mt-0.5">{errors[`inv_${idx}`]}</p>}
+                    </div>
+                    {/* Quantity */}
+                    <div>
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={req.quantity_used}
+                        onChange={e => updateInventoryRequirement(idx, 'quantity_used', e.target.value)}
+                        placeholder="Qty"
+                        className={`w-full px-3 py-2 rounded-xl border text-sm outline-none ${errors[`qty_${idx}`] ? 'border-red-300' : 'border-gray-200'}`}
+                      />
+                      {errors[`qty_${idx}`] && <p className="text-[10px] text-red-500 mt-0.5">{errors[`qty_${idx}`]}</p>}
+                    </div>
+                    {/* Notes */}
+                    <input
+                      type="text"
+                      value={req.notes}
+                      onChange={e => updateInventoryRequirement(idx, 'notes', e.target.value)}
+                      placeholder="Note (e.g. per tooth)"
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none"
+                    />
+                    {/* Remove */}
+                    <button type="button" onClick={() => removeInventoryRequirement(idx)}
+                      className="w-8 h-[38px] flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-100 border border-red-100">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Icon ── */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Icon</label>
+            <div className="flex gap-2 mb-2">
+              {['icon','url'].map(t => (
+                <button key={t} type="button" onClick={() => setIconType(t)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold ${iconType === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                  {t === 'icon' ? 'Select Icon' : 'Enter URL'}
+                </button>
+              ))}
             </div>
             {iconType === 'icon' ? (
               <div className="flex gap-2">
-                <select
-                  value={form.icon_url}
-                  onChange={e => set('icon_url', e.target.value)}
-                  className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400"
-                >
+                <select value={form.icon_url} onChange={e => set('icon_url', e.target.value)}
+                  className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none bg-white">
                   <option value="">Select an icon</option>
-                  {SERVICE_ICONS.map(icon => (
-                    <option key={icon.value} value={icon.value}>{icon.label}</option>
-                  ))}
+                  {SERVICE_ICONS.map(icon => <option key={icon.value} value={icon.value}>{icon.label}</option>)}
                 </select>
                 {getIconPreview() && (
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                    {getIconPreview()}
-                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">{getIconPreview()}</div>
                 )}
               </div>
             ) : (
-              <input
-                value={form.icon_url}
-                onChange={e => set('icon_url', e.target.value)}
+              <input value={form.icon_url} onChange={e => set('icon_url', e.target.value)}
                 placeholder="https://example.com/icon.png"
-                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:border-blue-400"
-              />
+                className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400" />
             )}
-            <p className="text-xs text-gray-400 mt-1">Choose from common icons or enter a custom image URL</p>
           </div>
         </div>
-        <div className="flex justify-end gap-3 px-6 pb-6">
+
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm text-gray-600 border border-gray-200 hover:bg-gray-50">
             Cancel
           </button>
-          <button onClick={handleSubmit} disabled={saving} className="px-5 py-2.5 rounded-xl bg-[#1F4E79] text-white text-sm font-semibold hover:bg-blue-900 disabled:opacity-50">
+          <button onClick={handleSubmit} disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-[#1F4E79] text-white text-sm font-semibold hover:bg-blue-900 disabled:opacity-50">
             {saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Add Service')}
           </button>
         </div>
@@ -1043,21 +1194,30 @@ function ShowcaseClinicProfileTab({ showcaseSettings, showToast, onUpdate }) {
 
 // ── TAB: Showcase - Services Management ───────────────────────────────────────
 function ShowcaseServicesTab({ showToast }) {
-  const [services, setServices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [services,       setServices]       = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [allSpecs,       setAllSpecs]       = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [showModal,      setShowModal]      = useState(false);
   const [editingService, setEditingService] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [deleteTarget,   setDeleteTarget]   = useState(null);
+  const [saving,         setSaving]         = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
+  const [filterType,     setFilterType]     = useState('all'); // all | service | treatment
 
   const loadServices = async () => {
     try {
       setLoading(true);
-      const res = await fetchServices();
-      setServices(res.data || []);
-    } catch (error) {
-      showToast('Failed to load services', error);
+      const [svcRes, invRes, specRes] = await Promise.all([
+        fetchServices(),
+        apiClient.get('/admin/inventory-items').catch(() => ({ data: { data: [] } })),
+        apiClient.get('/admin/specializations').catch(() => ({ data: { data: [] } })),
+      ]);
+      setServices(svcRes.data || []);
+      setInventoryItems(invRes.data?.data || []);
+      setAllSpecs(specRes.data?.data || []);
+    } catch {
+      showToast('Failed to load services');
     } finally {
       setLoading(false);
     }
@@ -1073,10 +1233,8 @@ function ShowcaseServicesTab({ showToast }) {
       setShowModal(false);
       loadServices();
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Failed to add service', error);
-    } finally {
-      setSaving(false);
-    }
+      showToast(error?.response?.data?.message || 'Failed to add service');
+    } finally { setSaving(false); }
   };
 
   const handleUpdate = async (data) => {
@@ -1088,10 +1246,8 @@ function ShowcaseServicesTab({ showToast }) {
       setEditingService(null);
       loadServices();
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Failed to update service', 'error');
-    } finally {
-      setSaving(false);
-    }
+      showToast(error?.response?.data?.message || 'Failed to update service');
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
@@ -1099,37 +1255,41 @@ function ShowcaseServicesTab({ showToast }) {
     setDeleting(true);
     try {
       await deleteService(deleteTarget.id);
-      showToast('Service deleted successfully');
+      showToast('Service deleted');
       setDeleteTarget(null);
       loadServices();
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Failed to delete service', 'error');
-    } finally {
-      setDeleting(false);
-    }
+      showToast(error?.response?.data?.message || 'Failed to delete service');
+    } finally { setDeleting(false); }
   };
 
   const handleTogglePublish = async (service) => {
     try {
       await updateService({ id: service.id, is_published: !service.is_published });
-      showToast(service.is_published ? 'Service hidden from website' : 'Service published to website');
+      showToast(service.is_published ? 'Service hidden' : 'Service published');
       loadServices();
-    } catch (error) {
-      showToast('Failed to update service status', error);
-    }
+    } catch { showToast('Failed to update status'); }
   };
 
-  const formatCurrency = (amount) => `ETB ${amount?.toLocaleString() || 0}`;
+  const formatCurrency = (amount) => `ETB ${Number(amount || 0).toLocaleString()}`;
 
   const getIconDisplay = (iconUrl) => {
     if (!iconUrl) return <FileText className="w-5 h-5 text-gray-400" />;
     if (iconUrl.startsWith('http')) return <img src={iconUrl} alt="icon" className="w-5 h-5 object-contain" />;
     const found = SERVICE_ICONS.find(i => i.value === iconUrl);
-    if (found && found.icon) {
-      const IconComp = found.icon;
-      return <IconComp className="w-5 h-5 text-blue-600" />;
-    }
+    if (found?.icon) { const I = found.icon; return <I className="w-5 h-5 text-blue-600" />; }
     return <FileText className="w-5 h-5 text-gray-400" />;
+  };
+
+  const filtered = services.filter(s =>
+    filterType === 'all' ? true : (s.booking_type ?? 'service') === filterType
+  );
+
+  // Safely normalize a value that might be a JSON string or array
+  const toArray = (v) => {
+    if (!v) return [];
+    if (Array.isArray(v)) return v;
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
   };
 
   return (
@@ -1140,6 +1300,8 @@ function ShowcaseServicesTab({ showToast }) {
           onClose={() => { setShowModal(false); setEditingService(null); }}
           onSave={editingService ? handleUpdate : handleCreate}
           saving={saving}
+          inventoryItems={inventoryItems}
+          allSpecializations={allSpecs}
         />
       )}
       {deleteTarget && (
@@ -1151,47 +1313,337 @@ function ShowcaseServicesTab({ showToast }) {
         />
       )}
 
-      <div className="flex justify-end mb-4">
-        <button onClick={() => { setEditingService(null); setShowModal(true); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
-          <Plus className="w-4 h-4" /> Add Service
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex gap-1.5">
+          {[
+            { v: 'all',       label: 'All' },
+            { v: 'service',   label: 'Services' },
+            { v: 'treatment', label: 'Treatments' },
+          ].map(({ v, label }) => (
+            <button key={v} onClick={() => setFilterType(v)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                filterType === v ? 'bg-[#1F4E79] text-white border-[#1F4E79]' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => { setEditingService(null); setShowModal(true); }}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1F4E79] text-white text-sm font-semibold hover:bg-blue-900">
+          <Plus className="w-4 h-4" /> Add Service / Treatment
         </button>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
-      ) : services.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No services added yet. Click "Add Service" to create your first service.</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          No {filterType !== 'all' ? filterType + 's' : 'services'} yet. Click "Add Service / Treatment" to create one.
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {services.map((s) => (
-            <div key={s.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                    {getIconDisplay(s.icon_url)}
+          {filtered.map((s) => {
+            const invReqs = toArray(s.inventory_requirements);
+            const specs   = toArray(s.required_specializations);
+            const isService = (s.booking_type ?? 'service') === 'service';
+            return (
+              <div key={s.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
+                {/* Header row */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isService ? 'bg-blue-100' : 'bg-violet-100'}`}>
+                      {getIconDisplay(s.icon_url)}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm">{s.name}</h3>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isService ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>
+                          {isService ? 'Service' : 'Treatment'}
+                        </span>
+                        <span className="text-[10px] text-gray-400 capitalize">{s.category}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{s.name}</h3>
-                    <p className="text-xs text-gray-400 capitalize">{s.category}</p>
-                  </div>
+                  <button onClick={() => handleTogglePublish(s)} className="p-1 rounded-lg hover:bg-gray-100">
+                    {s.is_published ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-gray-400" />}
+                  </button>
                 </div>
-                <button onClick={() => handleTogglePublish(s)} className="p-1 rounded-lg hover:bg-gray-100">
-                  {s.is_published ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-gray-400" />}
-                </button>
+
+                {/* Description */}
+                {s.description && (
+                  <p className="text-xs text-gray-500 mb-2 line-clamp-2">{s.description}</p>
+                )}
+
+                {/* Time + Price */}
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-gray-400 text-xs">{s.duration_minutes} min</span>
+                  <span className="font-bold text-blue-600 text-sm">{formatCurrency(s.price)}</span>
+                </div>
+
+                {/* Specializations */}
+                {specs.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {specs.map(spec => (
+                      <span key={spec} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full font-semibold">
+                        {spec}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Inventory requirements */}
+                {invReqs.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-100">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                      Inventory consumed
+                    </p>
+                    <div className="space-y-1">
+                      {invReqs.map(req => (
+                        <div key={req.inventory_item_id} className="flex items-center justify-between">
+                          <span className="text-xs text-gray-600 truncate max-w-[140px]">{req.name}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-semibold text-gray-800">{req.quantity_used}</span>
+                            <span className={`text-[10px] font-semibold px-1 rounded ${
+                              req.current_stock === 0 ? 'text-red-500' :
+                              req.current_stock < 5   ? 'text-amber-500' : 'text-green-600'
+                            }`}>
+                              ({req.current_stock} left)
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                  <button onClick={() => { setEditingService(s); setShowModal(true); }}
+                    className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                    Edit
+                  </button>
+                  <button onClick={() => setDeleteTarget(s)}
+                    className="flex-1 py-1.5 rounded-lg border border-red-100 text-xs font-medium text-red-600 hover:bg-red-50">
+                    Delete
+                  </button>
+                </div>
               </div>
-              <p className="text-sm text-gray-600 mb-3 line-clamp-2">{s.description || 'No description'}</p>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">{s.duration_minutes} min</span>
-                <span className="font-bold text-blue-600">{formatCurrency(s.price)}</span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+}
+
+// ── TAB: Specializations ─────────────────────────────────────────────────────
+function SpecializationsTab({ showToast }) {
+  const [specs,    setSpecs]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing,  setEditing]  = useState(null);  // null = add, obj = edit
+  const [deleting, setDeleting] = useState(null);
+  const [saving,   setSaving]   = useState(false);
+  const [form,     setForm]     = useState({ name: '', short_code: '', description: '' });
+  const [formErr,  setFormErr]  = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/admin/specializations');
+      setSpecs(res.data?.data ?? []);
+    } catch { showToast('Failed to load specializations'); }
+    finally  { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ name: '', short_code: '', description: '' });
+    setFormErr('');
+    setShowForm(true);
+  };
+
+  const openEdit = (s) => {
+    setEditing(s);
+    setForm({ name: s.name, short_code: s.short_code ?? '', description: s.description ?? '' });
+    setFormErr('');
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setFormErr('Name is required.'); return; }
+    setSaving(true);
+    setFormErr('');
+    try {
+      if (editing) {
+        await apiClient.put(`/admin/specializations/${editing.id}`, form);
+        showToast('Specialization updated.');
+      } else {
+        await apiClient.post('/admin/specializations', form);
+        showToast('Specialization added.');
+      }
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setFormErr(err?.response?.data?.message || 'Failed to save.');
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (s) => {
+    setDeleting(s.id);
+    try {
+      await apiClient.delete(`/admin/specializations/${s.id}`);
+      showToast('Specialization deleted.');
+      load();
+    } catch (err) {
+      showToast(err?.response?.data?.message || 'Failed to delete.');
+    } finally { setDeleting(null); }
+  };
+
+  return (
+    <div>
+      {/* Add / Edit inline form */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-gray-900">
+                {editing ? 'Edit Specialization' : 'Add Specialization'}
+              </h3>
+              <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            {formErr && (
+              <div className="mb-4 px-4 py-2.5 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">
+                {formErr}
               </div>
-              <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
-                <button onClick={() => { setEditingService(s); setShowModal(true); }} className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50">
-                  Edit
-                </button>
-                <button onClick={() => setDeleteTarget(s)} className="flex-1 py-1.5 rounded-lg border border-red-100 text-xs font-medium text-red-600 hover:bg-red-50">
-                  Delete
-                </button>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Oral Surgeon"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400"
+                />
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Short Code <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  value={form.short_code}
+                  onChange={e => setForm(p => ({ ...p, short_code: e.target.value.toUpperCase().slice(0, 8) }))}
+                  placeholder="e.g. ORS"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Description <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                  rows={2}
+                  placeholder="Brief description of this specialization..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setShowForm(false)}
+                className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-5 py-2.5 rounded-xl bg-[#1F4E79] text-white text-sm font-semibold hover:bg-blue-900 disabled:opacity-50">
+                {saving ? 'Saving...' : editing ? 'Save Changes' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <p className="text-sm text-gray-500">
+            Define the dental specializations available in your clinic.
+            System defaults are shown in gray and cannot be deleted.
+            Your custom ones can be edited or removed.
+          </p>
+        </div>
+        <button onClick={openAdd}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1F4E79] text-white text-sm font-semibold hover:bg-blue-900 ml-4 shrink-0">
+          <Plus className="w-4 h-4" /> Add Specialization
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+      ) : (
+        <div className="space-y-2">
+          {specs.map(s => (
+            <div key={s.id} className={`flex items-center justify-between px-5 py-3.5 rounded-xl border transition-all ${
+              s.is_system
+                ? 'bg-gray-50 border-gray-100'
+                : 'bg-white border-gray-200 hover:border-blue-200'
+            }`}>
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                  s.is_system ? 'bg-gray-200' : 'bg-blue-100'
+                }`}>
+                  <Stethoscope className={`w-4 h-4 ${s.is_system ? 'text-gray-400' : 'text-blue-600'}`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-900">{s.name}</p>
+                    {s.short_code && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                        {s.short_code}
+                      </span>
+                    )}
+                    {s.is_system && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">
+                        System
+                      </span>
+                    )}
+                  </div>
+                  {s.description && (
+                    <p className="text-xs text-gray-400 truncate max-w-sm">{s.description}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions — only for clinic-owned */}
+              {!s.is_system ? (
+                <div className="flex items-center gap-2 ml-4 shrink-0">
+                  <button onClick={() => openEdit(s)}
+                    className="px-3 py-1.5 rounded-lg border border-blue-200 text-xs font-semibold text-blue-600 hover:bg-blue-50">
+                    Edit
+                  </button>
+                  <button onClick={() => handleDelete(s)} disabled={deleting === s.id}
+                    className="px-3 py-1.5 rounded-lg border border-red-100 text-xs font-semibold text-red-500 hover:bg-red-50 disabled:opacity-40">
+                    {deleting === s.id ? '...' : 'Delete'}
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-300 ml-4 shrink-0">Read-only</span>
+              )}
             </div>
           ))}
         </div>
@@ -1202,13 +1654,14 @@ function ShowcaseServicesTab({ showToast }) {
 
 // ── Main Settings Component ───────────────────────────────────────────────────
 const TABS = [
-  { id: 'clinic', label: 'Clinic Profile', icon: Building2 },
-  { id: 'admin', label: 'Admin Profile', icon: User },
-  { id: 'showcase_clinic', label: 'Showcase - Clinic', icon: Home },
-  { id: 'showcase_services', label: 'Showcase - Services', icon: Stethoscope },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'integrations', label: 'Integrations', icon: Plug },
-  { id: 'tax', label: 'Tax & Invoice', icon: DollarSign },
+  { id: 'clinic',            label: 'Clinic Profile',      icon: Building2 },
+  { id: 'admin',             label: 'Admin Profile',       icon: User },
+  { id: 'specializations',   label: 'Specializations',     icon: Stethoscope },
+  { id: 'showcase_clinic',   label: 'Showcase - Clinic',   icon: Home },
+  { id: 'showcase_services', label: 'Showcase - Services', icon: FileText },
+  { id: 'notifications',     label: 'Notifications',       icon: Bell },
+  { id: 'integrations',      label: 'Integrations',        icon: Plug },
+  { id: 'tax',               label: 'Tax & Invoice',       icon: DollarSign },
 ];
 
 export default function Settings() {
@@ -1276,6 +1729,7 @@ export default function Settings() {
 
       {activeTab === 'clinic' && <ClinicProfileTab settings={clinic} showToast={showToast} />}
       {activeTab === 'admin' && <AdminProfileTab admin={admin} showToast={showToast} />}
+      {activeTab === 'specializations' && <SpecializationsTab showToast={showToast} />}
       {activeTab === 'showcase_clinic' && <ShowcaseClinicProfileTab showcaseSettings={showcaseSettings} showToast={showToast} onUpdate={handleUpdateShowcase} />}
       {activeTab === 'showcase_services' && <ShowcaseServicesTab showToast={showToast} />}
       {activeTab === 'notifications' && <NotificationsTab notifications={notifications} showToast={showToast} />}

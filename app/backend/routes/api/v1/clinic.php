@@ -67,6 +67,15 @@ Route::middleware(['cookie.auth'])->prefix('admin')->group(function () {
     Route::put('services/{id}',         [SettingsController::class, 'updateService']);
     Route::delete('services/{id}',      [SettingsController::class, 'deleteService']);
 
+    // Inventory items list — used in service editor to pick requirements
+    Route::get('inventory-items',       [SettingsController::class, 'getInventoryItemsForServices']);
+
+    // Specializations — CRUD (system defaults read-only, clinic customs editable)
+    Route::get('specializations',                    [\App\Http\Controllers\Api\V1\Clinic\SpecializationController::class, 'index']);
+    Route::post('specializations',                   [\App\Http\Controllers\Api\V1\Clinic\SpecializationController::class, 'store']);
+    Route::put('specializations/{id}',               [\App\Http\Controllers\Api\V1\Clinic\SpecializationController::class, 'update']);
+    Route::delete('specializations/{id}',            [\App\Http\Controllers\Api\V1\Clinic\SpecializationController::class, 'destroy']);
+
     Route::put('settings/showcase',     [SettingsController::class, 'updateShowcaseSettings']);
     Route::get('settings/showcase',     [SettingsController::class, 'getShowcaseSettings']);
 });

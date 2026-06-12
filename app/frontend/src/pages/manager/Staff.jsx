@@ -1,4 +1,4 @@
-import { useState, useEffect, queryClient} from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Plus, Loader2, Users, Phone, Mail } from 'lucide-react';
 import apiClient from '../../services/axiosInstance';
 import useAuthStore from '../../store/authStore';
@@ -55,21 +55,19 @@ export default function ManagerStaff() {
   useEffect(() => { load(); }, []);
 
 
-    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['staff'] });
-
-const handleSave = async (formData, id) => {
+  const handleSave = async (formData, id) => {
     if (id) {
       const res = await apiClient.post(`/manager/staff/${id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      invalidate();
       showToast(`${res.data?.data?.name} updated.`);
-      return res.data;  // ← ADD THIS
+      load(); // refresh staff list
+      return res.data;
     } else {
       const res = await apiClient.post('/manager/staff', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      invalidate();
+      load(); // refresh staff list
       if (res.data.temp_password) {
         setTempCreds({
           name:     res.data.data?.name     ?? '',
@@ -79,7 +77,7 @@ const handleSave = async (formData, id) => {
       } else {
         showToast(`${res.data?.data?.name} added successfully.`);
       }
-      return res.data;  // ← ADD THIS
+      return res.data;
     }
   };
 

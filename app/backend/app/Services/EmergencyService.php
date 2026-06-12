@@ -96,10 +96,20 @@ class EmergencyService
             $queueItem = $this->addToQueueWithEmergencyPriority($appointment, $dentist, $clinicId, $branchId);
 
             // If no card — also create a pending card invoice so billing team sees it
+            // Only create if one doesn't already exist (idempotency guard)
             $cardInvoice = null;
             if ($billingFlag) {
-                $cardPrice   = $patient->clinic?->getCardPrice() ?? 100;
-                $cardInvoice = \App\Models\Invoice::createCardInvoiceForPatient($patient, $createdBy, $cardPrice);
+                $existingCard = \App\Models\Invoice::where('patient_id', $patient->id)
+                    ->where('invoice_type', \App\Models\Invoice::TYPE_CARD)
+                    ->whereNotIn('status', ['paid', 'cancelled'])
+                    ->first();
+
+                if (!$existingCard) {
+                    $cardPrice   = $patient->clinic?->getCardPrice() ?? 100;
+                    $cardInvoice = \App\Models\Invoice::createCardInvoiceForPatient($patient, $createdBy, $cardPrice);
+                } else {
+                    $cardInvoice = $existingCard;
+                }
             }
 
             $patient->pushMedicalCase(

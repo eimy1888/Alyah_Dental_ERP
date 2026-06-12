@@ -79,6 +79,14 @@ Route::middleware(['cookie.auth'])->prefix('dentist')->group(function () {
         Route::post('/refer',   [ReferralController::class, 'refer']);
     });
 
+    // ── Lab Orders (dentist creates) ──────────────────────
+    Route::prefix('lab-orders')->group(function () {
+        Route::get('/',    [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'index']);
+        Route::post('/',   [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'store']);
+        Route::get('/{id}',[\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'show']);
+        Route::delete('/{id}', [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'destroy']);
+    });
+
     // ── Procedures (legacy + v2 unified) ─────────────────
     Route::prefix('procedures')->group(function () {
         Route::get('/appointment/{appointmentId}',      [MedicalRecordController::class, 'getAppointmentProcedures']);

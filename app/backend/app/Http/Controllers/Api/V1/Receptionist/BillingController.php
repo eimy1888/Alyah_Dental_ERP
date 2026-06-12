@@ -41,22 +41,27 @@ class BillingController extends Controller
         return response()->json([
             'success' => true,
             'data' => $invoices->map(fn($i) => [
-                'id' => $i->id,
-                'invoice_number' => $i->invoice_number,
-                'patient' => [
-                    'id' => $i->patient?->id,
+                'id'               => $i->id,
+                'invoice_number'   => $i->invoice_number,
+                'invoice_type'     => $i->invoice_type ?? 'service',
+                'patient'          => [
+                    'id'        => $i->patient?->id,
                     'full_name' => $i->patient?->full_name ?? '—',
                 ],
-                'amount' => $i->total,
-                'balance' => $i->balance,
-                'status' => $i->status,
-                'issued_at' => $i->issued_at?->toDateString(),
+                'amount'           => $i->total,
+                'balance'          => $i->balance,
+                'tax_amount'       => (float) ($i->tax_amount ?? 0),
+                'tax_rate'         => (float) ($i->tax_rate ?? 15),
+                'status'           => $i->status,
+                'lifecycle_status' => $i->lifecycle_status ?? $i->status,
+                'issued_at'        => $i->issued_at?->toDateString(),
+                'isCardInvoice'    => $i->isCardInvoice(),
             ]),
             'meta' => [
-                'total' => $invoices->total(),
+                'total'        => $invoices->total(),
                 'current_page' => $invoices->currentPage(),
-                'last_page' => $invoices->lastPage(),
-                'per_page' => $invoices->perPage(),
+                'last_page'    => $invoices->lastPage(),
+                'per_page'     => $invoices->perPage(),
             ],
         ]);
     }
@@ -74,27 +79,32 @@ class BillingController extends Controller
             'due_date' => 'nullable|date|after_or_equal:today',
         ]);
 
-        $subtotal = collect($validated['items'])->sum(fn($item) => $item['quantity'] * $item['unit_price']);
-        $taxRate  = 15;
-        $taxAmount = $subtotal * ($taxRate / 100);
+        $subtotal  = collect($validated['items'])->sum(fn($item) => $item['quantity'] * $item['unit_price']);
+        $clinic    = \App\Models\Clinic::find($user->clinic_id);
+        $taxRate   = (float) ($clinic?->getSetting('tax_rate', 15) ?? 15);
+        $taxAmount = round($subtotal * ($taxRate / 100), 2);
         $total     = $subtotal + $taxAmount;
 
         // Race-condition-safe invoice number
         $invoiceNumber = Invoice::generateNumber($user->clinic_id);
 
         $invoice = Invoice::create([
-            'clinic_id' => $user->clinic_id,
-            'branch_id' => $user->branch_id,
-            'patient_id' => $validated['patient_id'],
-            'invoice_number' => $invoiceNumber,
-            'issued_at' => Carbon::now(),
-            'due_date' => $validated['due_date'] ?? Carbon::now()->addDays(15),
-            'total' => $total,
-            'paid' => 0,
-            'balance' => $total,
-            'status' => 'sent',
-            'created_by' => $user->id,
-            'notes' => null,
+            'clinic_id'        => $user->clinic_id,
+            'branch_id'        => $user->branch_id,
+            'patient_id'       => $validated['patient_id'],
+            'invoice_number'   => $invoiceNumber,
+            'invoice_type'     => Invoice::TYPE_SERVICE,
+            'lifecycle_status' => Invoice::STATUS_ESTIMATED,
+            'issued_at'        => Carbon::now(),
+            'due_date'         => $validated['due_date'] ?? Carbon::now()->addDays(15),
+            'total'            => $total,
+            'tax_rate'         => $taxRate,
+            'tax_amount'       => $taxAmount,
+            'paid'             => 0,
+            'balance'          => $total,
+            'status'           => 'sent',
+            'created_by'       => $user->id,
+            'notes'            => null,
         ]);
 
         foreach ($validated['items'] as $item) {
@@ -118,73 +128,16 @@ class BillingController extends Controller
     }
 
     /**
-     * Record payment for an invoice
-     * 
-     * FIXED: Removed duplicate code, using correct column names (paid, balance)
-     * Activates clinic card automatically when card invoice is fully paid
+     * Record payment - DISABLED for receptionist.
+     * All payments must be processed by the accountant.
      */
     public function recordPayment(Request $request, $id): JsonResponse
     {
-        $user = $request->user();
-
-        $invoice = Invoice::forClinic($user->clinic_id)
-            ->forBranch($user->branch_id)
-            ->findOrFail($id);
-
-        $validated = $request->validate([
-            'amount' => 'required|numeric|min:0.01|max:' . $invoice->balance,
-            'payment_method' => 'required|in:cash,telebirr,bank_transfer',
-            'reference' => 'nullable|string|max:255',
-        ]);
-
-        $amount = floatval($validated['amount']);
-
-        // Create payment record
-        $payment = Payment::create([
-            'clinic_id' => $user->clinic_id,
-            'branch_id' => $user->branch_id,
-            'invoice_id' => $invoice->id,
-            'patient_id' => $invoice->patient_id,
-            'amount' => $amount,
-            'payment_method' => $validated['payment_method'],
-            'reference' => $validated['reference'] ?? 'PAY-' . strtoupper(uniqid()),
-            'status' => 'completed',
-            'collected_by' => $user->id,
-            'paid_at' => Carbon::now(),
-        ]);
-
-        // Update invoice paid amount and balance
-        $newPaidAmount = floatval($invoice->paid) + $amount;
-        $newBalance = floatval($invoice->total) - $newPaidAmount;
-        $status = $newBalance <= 0 ? 'paid' : 'partial';
-
-        $invoice->update([
-            'paid' => $newPaidAmount,
-            'balance' => max(0, $newBalance),
-            'status' => $status,
-        ]);
-
-        // ── Activate clinic card if this invoice contains card purchase AND is now fully paid ──
-        $invoice->refresh();
-        
-        // Check if this invoice has a clinic card purchase
-        $hasCardPurchase = $invoice->items()->where('description', 'like', '%Clinic Card%')->exists();
-        
-        if ($hasCardPurchase && $invoice->status === 'paid') {
-            $patient = $invoice->patient;
-            if ($patient && !$patient->hasActiveCard()) {
-                // Generate unique card number
-                $cardNumber = 'CARD-' . str_pad($patient->id, 6, '0', STR_PAD_LEFT) . '-' . date('Ymd');
-                $patient->activateCard($cardNumber);
-            }
-        }
-
         return response()->json([
-            'success' => true,
-            'message' => 'Payment recorded successfully.' . 
-                ($hasCardPurchase && $invoice->status === 'paid' ? ' Clinic card activated.' : ''),
-            'data' => $payment,
-        ]);
+            'success' => false,
+            'message' => 'Payments are processed by the accountant.',
+            'code'    => 'PAYMENT_NOT_ALLOWED',
+        ], 403);
     }
 
     public function recentPayments(Request $request): JsonResponse

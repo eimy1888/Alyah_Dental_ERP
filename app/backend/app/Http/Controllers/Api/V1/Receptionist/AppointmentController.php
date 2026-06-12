@@ -41,25 +41,32 @@ class AppointmentController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // APPOINTMENT TYPES CATALOGUE
-    // GET /receptionist/appointment-types
+    // GET /receptionist/appointment-types?billing_model=treatment
     // Returns the controlled vocabulary — system defaults + clinic customs.
+    // billing_model filter: 'service' | 'treatment' | 'hybrid' | all (omit)
     // ─────────────────────────────────────────────────────────────────────────
     public function getAppointmentTypes(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        $types = \App\Models\AppointmentType::forClinic($user->clinic_id)
+        $query = \App\Models\AppointmentType::forClinic($user->clinic_id)
             ->active()
-            ->ordered()
-            ->get()
-            ->map(fn($t) => [
-                'id'                       => $t->id,
-                'name'                     => $t->name,
-                'short_code'               => $t->short_code,
-                'category'                 => $t->category,
-                'default_duration_minutes' => $t->default_duration_minutes,
-                'billing_model'            => $t->billing_model,
-            ]);
+            ->ordered();
+
+        // Optional filter — e.g. ?billing_model=treatment for treatment picker
+        if ($request->filled('billing_model')) {
+            $query->where('billing_model', $request->billing_model);
+        }
+
+        $types = $query->get()->map(fn($t) => [
+            'id'                       => $t->id,
+            'name'                     => $t->name,
+            'short_code'               => $t->short_code,
+            'category'                 => $t->category,
+            'default_duration_minutes' => $t->default_duration_minutes,
+            'billing_model'            => $t->billing_model,
+            'required_specializations' => $t->required_specializations ?? [],
+        ]);
 
         return response()->json([
             'success' => true,
@@ -160,15 +167,16 @@ class AppointmentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'patient_id'       => 'required|exists:patients,id',
-            'dentist_id'       => 'required|exists:users,id',
-            'appointment_time' => 'required|date',
-            'type'             => 'nullable|string|max:255',
-            'notes'            => 'nullable|string|max:1000',
-            'duration_minutes' => 'nullable|integer|min:15|max:180',
+            'patient_id'          => 'required|exists:patients,id',
+            'dentist_id'          => 'required|exists:users,id',
+            'appointment_time'    => 'required|date',
+            'type'                => 'nullable|string|max:255',
+            'notes'               => 'nullable|string|max:1000',
+            'duration_minutes'    => 'nullable|integer|min:15|max:180',
             // v2 billing fields
-            'service_id'    => 'nullable|exists:services,id',
-            'billing_model' => 'nullable|in:service,treatment,hybrid',
+            'service_id'          => 'nullable|exists:services,id',
+            'billing_model'       => 'nullable|in:service,treatment,hybrid',
+            'appointment_type_id' => 'nullable|exists:appointment_types,id',
         ]);
 
         $user = $request->user();
@@ -274,19 +282,20 @@ class AppointmentController extends Controller
             }
 
             $appointment = Appointment::create([
-                'clinic_id'        => $user->clinic_id,
-                'branch_id'        => $user->branch_id,
-                'patient_id'       => $validated['patient_id'],
-                'dentist_id'       => $validated['dentist_id'],
-                'appointment_time' => $appointmentTime,
-                'duration_minutes' => $duration,
-                'type'             => $validated['type'] ?? 'Consultation',
-                'notes'            => $validated['notes'] ?? null,
-                'status'           => 'confirmed',
-                'created_by'       => $user->id,
+                'clinic_id'           => $user->clinic_id,
+                'branch_id'           => $user->branch_id,
+                'patient_id'          => $validated['patient_id'],
+                'dentist_id'          => $validated['dentist_id'],
+                'appointment_time'    => $appointmentTime,
+                'duration_minutes'    => $duration,
+                'type'                => $validated['type'] ?? 'Consultation',
+                'notes'               => $validated['notes'] ?? null,
+                'status'              => 'confirmed',
+                'created_by'          => $user->id,
                 // v2 billing
-                'service_id'    => $validated['service_id'] ?? null,
-                'billing_model' => $validated['billing_model'] ?? null,
+                'service_id'          => $validated['service_id'] ?? null,
+                'billing_model'       => $validated['billing_model'] ?? null,
+                'appointment_type_id' => $validated['appointment_type_id'] ?? null,
             ]);
 
             if ($staff) {

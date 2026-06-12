@@ -327,6 +327,11 @@ import PatientMedicalRecords from './pages/patient/MedicalRecords';
 import PatientBilling from './pages/patient/Billing';
 import PatientSettings       from './pages/patient/Settings';
 
+// ── Lab Technician ────────────────────────────────────────────────────────────
+import LabDashboard from './pages/lab-technician/Dashboard';
+import LabOrders    from './pages/lab-technician/Orders';
+import LabSettings  from './pages/lab-technician/Settings';
+
 
 // ── Spinner ───────────────────────────────────────────────────────────────────
 function Spinner() {
@@ -563,6 +568,21 @@ export default function App() {
           <Route path="billing"      element={<PatientBilling />} />
           <Route path="medical-records" element={<PatientMedicalRecords />} />
           <Route path="settings"     element={<PatientSettings />} />
+        </Route>
+
+        {/* Lab Technician */}
+        <Route
+          path="/lab"
+          element={
+            <ProtectedGroup allowedRoles={['lab_technician']}>
+              <AppLayout />
+            </ProtectedGroup>
+          }
+        >
+          <Route index            element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<LabDashboard />} />
+          <Route path="orders"    element={<LabOrders />} />
+          <Route path="settings"  element={<LabSettings />} />
         </Route>
 
         {/* Fallback */}

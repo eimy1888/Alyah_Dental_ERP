@@ -43,6 +43,10 @@ class Appointment extends Model
         'service_id',
         'service_invoice_id',
         'treatment_invoice_id',
+        // smart booking fields
+        'appointment_kind',
+        'is_emergency_bypass',
+        'treatment_plan_id',
     ];
 
     protected $casts = [
@@ -57,6 +61,7 @@ class Appointment extends Model
         'end_time'          => 'datetime',
         'is_late'           => 'boolean',
         'late_minutes'      => 'integer',
+        'is_emergency_bypass' => 'boolean',
     ];
 
     // ── Status constants ───────────────────────────────────
@@ -145,6 +150,16 @@ class Appointment extends Model
     public function episodes(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(TreatmentEpisode::class)->orderBy('phase_number');
+    }
+
+    public function treatmentPlan(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(TreatmentPlan::class);
+    }
+
+    public function labOrders(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LabOrder::class);
     }
 
     // ── Scopes ────────────────────────────────────────────
@@ -287,59 +302,32 @@ class Appointment extends Model
     }
 
     /**
-     * Get or create invoice for this appointment
-     * Used during check-in when no active card
+     * Get or create invoice for this appointment.
+     * Routes to the proper factory — no manual Invoice::create() here.
+     * @deprecated Use BillingModelResolver::resolveAtBooking() instead.
      */
     public function getOrCreateInvoice(): ?Invoice
     {
-        // Check if invoice already exists
-        if ($this->invoice) {
-            return $this->invoice;
+        // Return existing service or treatment invoice if already created at booking
+        $existing = $this->service_invoice_id
+            ? Invoice::find($this->service_invoice_id)
+            : ($this->treatment_invoice_id ? Invoice::find($this->treatment_invoice_id) : null);
+
+        if ($existing) {
+            return $existing;
         }
-        
+
         // Don't create invoice if patient has active card
         if (!$this->requiresInvoiceOnCheckIn()) {
             return null;
         }
-        
-        // Find service for this appointment type
-        $service = Service::where('clinic_id', $this->clinic_id)
-            ->where('name', 'like', "%{$this->type}%")
-            ->orWhere('name', 'General Checkup')
-            ->first();
-        
-        $amount = $service ? $service->price : 0;
-        
-        // Create invoice
-        $invoice = Invoice::create([
-            'clinic_id' => $this->clinic_id,
-            'branch_id' => $this->branch_id,
-            'patient_id' => $this->patient_id,
-            'appointment_id' => $this->id,
-            'invoice_number' => Invoice::generateNumber($this->clinic_id),
-            'subtotal' => $amount,
-            'tax_rate' => 15,
-            'tax_amount' => $amount * 0.15,
-            'total' => $amount * 1.15,
-            'paid_amount' => 0,
-            'balance_due' => $amount * 1.15,
-            'status' => 'sent',
-            'issued_at' => now(),
-            'due_date' => now()->addDays(15),
-            'created_by' => $this->created_by,
-        ]);
-        
-        // Add invoice item
-        if ($service && $amount > 0) {
-            InvoiceItem::create([
-                'invoice_id' => $invoice->id,
-                'description' => $this->type,
-                'quantity' => 1,
-                'unit_price' => $amount,
-                'total' => $amount,
-            ]);
-        }
-        
+
+        // Fallback: create a treatment invoice via the proper factory
+        $createdBy = $this->createdBy ?? \App\Models\User::find($this->created_by);
+        if (!$createdBy) return null;
+
+        $invoice = Invoice::createTreatmentInvoice($this, $createdBy);
+        $this->update(['treatment_invoice_id' => $invoice->id]);
         return $invoice;
     }
 
