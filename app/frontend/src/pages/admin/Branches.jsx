@@ -8,7 +8,7 @@ const fetchBranches = (search) =>
   apiClient.get('/admin/branches', { params: { search } }).then(r => r.data);
 
 const fetchBranchManagers = () =>
-  apiClient.get('/admin/staff', { params: { role: 'Branch Manager', per_page: 100 } })
+  apiClient.get('/admin/staff', { params: { role: 'branch_manager', per_page: 100 } })
     .then(r => {
       const payload = r.data;
       if (Array.isArray(payload?.data)) return payload.data;

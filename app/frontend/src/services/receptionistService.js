@@ -63,7 +63,7 @@ export const removeFromWaitlist = (id) =>
   apiClient.delete(`/receptionist/waitlist/${id}`).then((res) => res.data);
 
 export const getLiveQueue = () =>
-  apiClient.get('/receptionist/live-queue').then((res) => res.data.data);
+  apiClient.get('/receptionist/queue').then((res) => res.data.data);
 
 // ─────────────────────────────────────────────────────────────
 // BILLING

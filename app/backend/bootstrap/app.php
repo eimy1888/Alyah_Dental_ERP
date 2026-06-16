@@ -23,8 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Middleware aliases
         $middleware->alias([
-            'role'         => \App\Http\Middleware\CheckRole::class,
-            'cookie.auth'  => \App\Http\Middleware\AuthenticateFromCookie::class, // ← new
+            'role'             => \App\Http\Middleware\CheckRole::class,
+            'cookie.auth'      => \App\Http\Middleware\AuthenticateFromCookie::class,
+            'subdomain.access' => \App\Http\Middleware\CheckSubdomainAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

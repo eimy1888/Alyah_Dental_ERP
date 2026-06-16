@@ -94,3 +94,51 @@ Schedule::call(function () {
             'unavailable_until' => null,
         ]);
 })->hourly();
+
+// ── Auto Subscription Expiry ──────────────────────────────────────────────────
+// Runs every hour. Finds active subscriptions whose ends_at has passed,
+// marks them expired, disables clinic + branch subdomain access,
+// deactivates all clinic users, and suspends the clinic.
+Schedule::call(function () {
+    $expiredSubs = \App\Models\Subscription::where('status', 'active')
+        ->where('ends_at', '<=', now())
+        ->with('clinic.branches')
+        ->get();
+
+    foreach ($expiredSubs as $subscription) {
+        try {
+            // 1. Mark subscription as expired
+            $subscription->update(['status' => 'expired']);
+
+            $clinic = $subscription->clinic;
+            if (!$clinic) continue;
+
+            // 2. Disable clinic subdomain + suspend clinic
+            $clinic->update([
+                'status'           => 'suspended',
+                'subdomain_active' => false,
+            ]);
+
+            // 3. Disable all branch subdomains
+            if ($clinic->branches) {
+                $clinic->branches()->update(['subdomain_active' => false]);
+            }
+
+            // 4. Deactivate all clinic users
+            $clinic->users()->update(['is_active' => false]);
+
+            \Illuminate\Support\Facades\Log::info('[DentFlow] Subscription auto-expired', [
+                'clinic_id'       => $clinic->id,
+                'clinic_name'     => $clinic->name,
+                'subscription_id' => $subscription->id,
+                'ended_at'        => $subscription->ends_at->toDateTimeString(),
+                'expired_at'      => now()->toDateTimeString(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[DentFlow] Subscription expiry failed', [
+                'subscription_id' => $subscription->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+    }
+})->hourly()->name('subscriptions:expire');

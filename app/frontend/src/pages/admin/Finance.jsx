@@ -406,7 +406,21 @@ export default function Finance() {
             className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">
             + Record Expense
           </button>
-          <button onClick={() => showToast('Export downloading...')}
+          <button onClick={() => {
+            if (!expenses.length) { showToast('No expenses to export.', 'error'); return; }
+            const rows = [
+              ['Date','Category','Description','Vendor','Branch','Amount (ETB)'],
+              ...expenses.map(e => [e.expense_date, e.category, e.description, e.vendor || '', e.branch, e.amount]),
+            ];
+            const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = `expenses-${selectedMonth}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
             className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
             ↓ Export
           </button>

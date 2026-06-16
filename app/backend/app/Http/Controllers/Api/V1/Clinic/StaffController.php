@@ -144,6 +144,13 @@ class StaffController extends Controller
             'gender'           => $validated['gender'] ?? null,
         ]);
 
+        \App\Models\AuditLog::record('staff.created', [
+            'subject_type'  => 'Staff',
+            'subject_id'    => $staff->id,
+            'subject_label' => $validated['name'],
+            'new_values'    => ['role' => $userRole, 'branch_id' => $validated['branch_id'] ?? null],
+        ], request());
+
         return response()->json([
             'success'       => true,
             'message'       => 'Staff member added successfully.',
@@ -227,6 +234,13 @@ class StaffController extends Controller
         }
 
         $staff->delete();
+
+        \App\Models\AuditLog::record('staff.deleted', [
+            'subject_type'  => 'Staff',
+            'subject_id'    => $staff->id,
+            'subject_label' => $staff->user?->name ?? "Staff #{$staff->id}",
+            'old_values'    => ['role' => $staff->user?->role, 'branch' => $staff->branch?->name],
+        ], request());
 
         return response()->json([
             'success' => true,

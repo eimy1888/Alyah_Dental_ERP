@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Appointment;
 use App\Models\Invoice;
+use App\Models\TreatmentPlan;
 use App\Models\User;
 use App\Notifications\AppointmentBookedNotification;
 use App\Notifications\AppointmentConfirmedNotification;
@@ -100,6 +101,64 @@ class NotificationService
         }
     }
 
+    /**
+     * Called after GP creates a treatment plan.
+     * Notifies: accountant(s) that estimate invoice is ready for review + patient.
+     */
+    public static function treatmentPlanCreated(TreatmentPlan $plan, Appointment $appointment, User $gp): void
+    {
+        try {
+            $plan->loadMissing(['patient', 'estimateInvoice']);
+
+            // Notify all active accountants
+            $accountants = User::where('clinic_id', $plan->clinic_id)
+                ->where('role', 'accountant')
+                ->where('is_active', true)
+                ->get();
+
+            $patientName = $plan->patient?->full_name ?? 'Patient';
+            $invoiceNum  = $plan->estimateInvoice?->invoice_number ?? '—';
+            $total       = number_format((float) ($plan->estimateInvoice?->total ?? 0), 2);
+
+            foreach ($accountants as $accountant) {
+                \DB::table('notifications')->insert([
+                    'id'              => \Illuminate\Support\Str::uuid(),
+                    'type'            => 'treatment_estimate_ready',
+                    'notifiable_type' => User::class,
+                    'notifiable_id'   => $accountant->id,
+                    'data'            => json_encode([
+                        'title'      => 'Treatment Estimate Pending Review',
+                        'message'    => "Dr. {$gp->name} submitted estimate {$invoiceNum} for {$patientName}. Total: ETB {$total}.",
+                        'plan_id'    => $plan->id,
+                        'invoice_id' => $plan->estimate_invoice_id,
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // Notify patient
+            $patientUser = self::findPatientUserByPlan($plan);
+            if ($patientUser) {
+                \DB::table('notifications')->insert([
+                    'id'              => \Illuminate\Support\Str::uuid(),
+                    'type'            => 'treatment_plan_created',
+                    'notifiable_type' => User::class,
+                    'notifiable_id'   => $patientUser->id,
+                    'data'            => json_encode([
+                        'title'   => 'Your Treatment Plan is Ready',
+                        'message' => "Dr. {$gp->name} has created a treatment plan for you. Estimated cost: ETB {$total}.",
+                        'plan_id' => $plan->id,
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('[NotificationService] treatmentPlanCreated failed: ' . $e->getMessage());
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
@@ -111,13 +170,29 @@ class NotificationService
         $patient = $appointment->patient;
         if (!$patient) return null;
 
-        // If patient has a direct user_id link
         if (!empty($patient->user_id)) {
             return User::find($patient->user_id);
         }
 
-        // Fall back: match by email or phone within the same clinic
         return User::where('clinic_id', $appointment->clinic_id)
+            ->where('role', 'patient')
+            ->where(function ($q) use ($patient) {
+                if ($patient->email) $q->orWhere('email', $patient->email);
+                if ($patient->phone) $q->orWhere('phone', $patient->phone);
+            })
+            ->first();
+    }
+
+    private static function findPatientUserByPlan(TreatmentPlan $plan): ?User
+    {
+        $patient = $plan->patient;
+        if (!$patient) return null;
+
+        if (!empty($patient->user_id)) {
+            return User::find($patient->user_id);
+        }
+
+        return User::where('clinic_id', $plan->clinic_id)
             ->where('role', 'patient')
             ->where(function ($q) use ($patient) {
                 if ($patient->email) $q->orWhere('email', $patient->email);

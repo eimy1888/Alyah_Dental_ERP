@@ -3,193 +3,142 @@
 namespace App\Http\Controllers\Api\V1\Accountant;
 
 use App\Http\Controllers\Controller;
-use App\Models\BillingEvent;
 use App\Models\Invoice;
-use App\Services\InvoiceLifecycleService;
-use App\Events\InvoiceLocked;
+use App\Models\Patient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * InvoiceReviewController — accountant invoice review queue.
+ * InvoiceReviewController — simplified per the new billing model.
  *
- * The review queue shows:
- *   - in_progress   — dentist still working
- *   - under_review  — dentist finalized, accountant must verify
- *   - discrepancy   — sent back for revision
+ * REQ-12: Accountant records full payments. No approval workflow.
+ * REQ-1:  Three states only: UNPAID → PAID → LOCKED.
+ * REQ-3:  Full payment only — partial payments rejected.
+ * REQ-15: Emergency debt handling.
  *
- * Accountant can: lock, send back, add review notes, view billing event log.
+ * Dashboard sections:
+ *   - unpaid:  invoices awaiting payment (UNPAID)
+ *   - paid:    recently paid invoices
+ *   - locked:  locked audit records
+ *
+ * REMOVED: review-queue, send-back, discount, insurance, approval workflow.
  */
 class InvoiceReviewController extends Controller
 {
-    public function __construct(private InvoiceLifecycleService $lifecycle) {}
-
     // ─────────────────────────────────────────────────────────────────────────
-    // REVIEW QUEUE — categorized list
-    // GET /accountant/invoices/review-queue
+    // UNPAID INVOICES (replaces old review-queue)
+    // GET /accountant/invoices/unpaid
     // ─────────────────────────────────────────────────────────────────────────
-    public function reviewQueue(Request $request): JsonResponse
+    public function unpaidList(Request $request): JsonResponse
     {
         $accountant = $request->user();
-        $clinicId   = $accountant->clinic_id;
 
-        $baseQuery = Invoice::where('clinic_id', $clinicId)
-            ->with(['patient:id,first_name,last_name', 'episode', 'appointment'])
-            ->whereNotNull('lifecycle_status');
+        $query = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->where('lifecycle_status', Invoice::STATUS_UNPAID)
+            ->with(['patient:id,first_name,last_name,has_debt,debt_amount', 'appointment.dentist:id,name'])
+            ->latest('issued_at');
 
-        // in_progress + updated (dentist still building)
-        $inProgress = (clone $baseQuery)
-            ->whereIn('lifecycle_status', [Invoice::STATUS_IN_PROGRESS, Invoice::STATUS_UPDATED])
-            ->where('invoice_type', 'treatment')
-            ->orderByDesc('updated_at')
-            ->get()
-            ->map(fn($i) => $this->formatReviewItem($i));
+        if ($request->filled('invoice_type')) {
+            $query->where('invoice_type', $request->invoice_type);
+        }
 
-        // under_review (ready for accountant)
-        $underReview = (clone $baseQuery)
-            ->where('lifecycle_status', Invoice::STATUS_UNDER_REVIEW)
-            ->orderBy('submitted_for_review_at')
-            ->get()
-            ->map(fn($i) => $this->formatReviewItem($i));
-
-        // sent back / discrepancy (dentist needs to fix)
-        $discrepancy = (clone $baseQuery)
-            ->where('lifecycle_status', Invoice::STATUS_IN_PROGRESS)
-            ->whereNotNull('review_notes')
-            ->where('review_notes', 'like', '%SENT BACK%')
-            ->orderByDesc('updated_at')
-            ->get()
-            ->map(fn($i) => $this->formatReviewItem($i));
+        $invoices = $query->paginate((int) ($request->per_page ?? 20));
 
         return response()->json([
             'success' => true,
-            'data'    => [
-                'in_progress'  => $inProgress,
-                'under_review' => $underReview,
-                'discrepancy'  => $discrepancy,
-                'counts'       => [
-                    'in_progress'  => $inProgress->count(),
-                    'under_review' => $underReview->count(),
-                    'discrepancy'  => $discrepancy->count(),
-                ],
+            'data'    => $invoices->through(fn($i) => $this->formatInvoice($i)),
+            'meta'    => [
+                'total'        => $invoices->total(),
+                'current_page' => $invoices->currentPage(),
+                'last_page'    => $invoices->lastPage(),
+                'per_page'     => $invoices->perPage(),
             ],
         ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SHOW INVOICE WITH FULL DETAIL + EVENTS LOG
-    // GET /accountant/invoices/{id}/review
+    // FULL INVOICE LIST (unpaid + paid + locked)
+    // GET /accountant/invoices/all
+    // ─────────────────────────────────────────────────────────────────────────
+    public function allInvoices(Request $request): JsonResponse
+    {
+        $accountant = $request->user();
+
+        $query = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->with(['patient:id,first_name,last_name', 'appointment.dentist:id,name'])
+            ->latest('issued_at');
+
+        if ($request->filled('lifecycle_status')) {
+            $query->where('lifecycle_status', $request->lifecycle_status);
+        }
+        if ($request->filled('invoice_type')) {
+            $query->where('invoice_type', $request->invoice_type);
+        }
+        if ($request->filled('search')) {
+            $query->whereHas('patient', fn($q) => $q
+                ->where('first_name', 'like', '%' . $request->search . '%')
+                ->orWhere('last_name', 'like', '%' . $request->search . '%')
+            );
+        }
+
+        $invoices = $query->paginate((int) ($request->per_page ?? 20));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $invoices->through(fn($i) => $this->formatInvoice($i)),
+            'meta'    => [
+                'total'        => $invoices->total(),
+                'current_page' => $invoices->currentPage(),
+                'last_page'    => $invoices->lastPage(),
+                'per_page'     => $invoices->perPage(),
+            ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SHOW INVOICE DETAIL
+    // GET /accountant/invoices/{id}/detail
     // ─────────────────────────────────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
         $accountant = $request->user();
 
         $invoice = Invoice::where('clinic_id', $accountant->clinic_id)
-            ->with([
-                'patient',
-                'items.addedBy:id,name',
-                'episode.procedures.service',
-                'episode.projections',
-                'payments',
-                'appointment.dentist:id,name',
-            ])
+            ->with(['patient', 'items', 'payments', 'appointment.dentist:id,name'])
             ->findOrFail($id);
-
-        $events = BillingEvent::where('invoice_id', $invoice->id)
-            ->with('triggeredBy:id,name')
-            ->orderBy('created_at')
-            ->get()
-            ->map(fn($e) => [
-                'event'         => $e->event_type,
-                'amount_impact' => (float) $e->amount_impact,
-                'total_before'  => (float) $e->invoice_total_before,
-                'total_after'   => (float) $e->invoice_total_after,
-                'triggered_by'  => $e->triggeredBy?->name ?? 'System',
-                'at'            => $e->created_at->format('d M Y H:i'),
-                'metadata'      => $e->metadata,
-            ]);
 
         return response()->json([
             'success' => true,
             'data'    => array_merge(
                 $invoice->getBillingBreakdown(),
                 [
-                    'patient'        => [
-                        'id'         => $invoice->patient?->id,
-                        'full_name'  => $invoice->patient?->full_name,
-                        'phone'      => $invoice->patient?->phone,
-                        'insurance'  => $invoice->patient?->insurance_provider,
+                    'patient' => [
+                        'id'        => $invoice->patient?->id,
+                        'full_name' => $invoice->patient?->full_name,
+                        'phone'     => $invoice->patient?->phone,
+                        'has_debt'  => (bool) ($invoice->patient?->has_debt ?? false),
                     ],
-                    'dentist'        => $invoice->appointment?->dentist?->name ?? '—',
-                    'billing_events' => $events,
-                    'payments'       => $invoice->payments->map(fn($p) => [
+                    'dentist'   => $invoice->appointment?->dentist?->name ?? '—',
+                    'payments'  => $invoice->payments->map(fn($p) => [
                         'id'        => $p->id,
                         'amount'    => (float) $p->amount,
                         'method'    => $p->method,
                         'reference' => $p->reference,
                         'paid_at'   => $p->paid_at?->toDateTimeString(),
                     ]),
-                    'review_notes'   => $invoice->review_notes,
+                    'is_emergency' => (bool) ($invoice->appointment?->is_emergency_bypass ?? false),
+                    'payment_banner' => $invoice->lifecycle_status === Invoice::STATUS_UNPAID
+                        ? 'PAYMENT REQUIRED — ETB ' . number_format($invoice->balance, 2)
+                        : null,
                 ]
             ),
         ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // LOCK INVOICE
-    // POST /accountant/invoices/{id}/lock
-    // ─────────────────────────────────────────────────────────────────────────
-    public function lock(Request $request, int $id): JsonResponse
-    {
-        $accountant = $request->user();
-
-        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)->findOrFail($id);
-
-        $result = $this->lifecycle->lockInvoice($invoice, $accountant);
-
-        if (!$result['success']) {
-            return response()->json($result, 422);
-        }
-
-        event(new InvoiceLocked($invoice->fresh(), $accountant));
-
-        return response()->json([
-            'success' => true,
-            'message' => $result['message'],
-            'data'    => $result['data'],
-        ]);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // SEND BACK FOR REVISION
-    // POST /accountant/invoices/{id}/send-back
-    // ─────────────────────────────────────────────────────────────────────────
-    public function sendBack(Request $request, int $id): JsonResponse
-    {
-        $accountant = $request->user();
-
-        $request->validate([
-            'reason' => 'required|string|max:1000',
-        ]);
-
-        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)->findOrFail($id);
-
-        $result = $this->lifecycle->sendBackForRevision($invoice, $accountant, $request->reason);
-
-        if (!$result['success']) {
-            return response()->json($result, 422);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => $result['message'],
-            'data'    => $result['data'],
-        ]);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // RECORD PAYMENT (post lock)
-    // POST /accountant/invoices/{id}/payments
+    // RECORD FULL PAYMENT  POST /accountant/invoices/{id}/payments
+    // REQ-3: Full payment only. Partial payments are rejected.
+    // REQ-12: Accountant records payment. Triggers treatment activation.
     // ─────────────────────────────────────────────────────────────────────────
     public function recordPayment(Request $request, int $id): JsonResponse
     {
@@ -197,14 +146,15 @@ class InvoiceReviewController extends Controller
 
         $request->validate([
             'amount'         => 'required|numeric|min:0.01',
-            'payment_method' => 'required|in:cash,telebirr,bank_transfer,insurance,card',
+            'payment_method' => 'required|in:cash,telebirr,bank_transfer,chapa,card',
             'reference'      => 'nullable|string|max:255',
         ]);
 
-        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)->findOrFail($id);
+        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->with(['patient', 'appointment.treatmentPlan'])
+            ->findOrFail($id);
 
-        $result = $this->lifecycle->recordPayment(
-            $invoice,
+        $result = $invoice->recordFullPayment(
             (float) $request->amount,
             $request->payment_method,
             $accountant,
@@ -215,6 +165,35 @@ class InvoiceReviewController extends Controller
             return response()->json($result, 422);
         }
 
+        // REQ-15: Clear debt flag if emergency invoice is now paid
+        $patient = $invoice->patient;
+        if ($patient && $patient->has_debt && $patient->debt_invoice_id === $invoice->id) {
+            $patient->clearDebt();
+        }
+
+        // Notify dentist: treatment is now active
+        $appointment = $invoice->appointment;
+        if ($appointment && $appointment->status === 'in_progress') {
+            \DB::table('notifications')->insert([
+                'id'              => \Illuminate\Support\Str::uuid(),
+                'type'            => 'treatment_activated',
+                'notifiable_type' => \App\Models\User::class,
+                'notifiable_id'   => $appointment->dentist_id,
+                'data'            => json_encode([
+                    'title'   => 'Payment Received — Start Treatment',
+                    'message' => "Invoice {$invoice->invoice_number} paid. Start treatment for {$patient?->full_name}.",
+                    'appointment_id' => $appointment->id,
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // Activate treatment: update appointment status
+            $appointment->update([
+                'status' => 'treatment_started',
+            ]);
+        }
+
         return response()->json([
             'success' => true,
             'message' => $result['message'],
@@ -223,113 +202,93 @@ class InvoiceReviewController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // APPLY DISCOUNT TO INVOICE
-    // POST /accountant/invoices/{id}/discount
+    // FLAG EMERGENCY DEBT  POST /accountant/invoices/{id}/flag-debt
+    // REQ-15: When emergency patient cannot pay before discharge.
     // ─────────────────────────────────────────────────────────────────────────
-    public function applyDiscount(Request $request, int $id): JsonResponse
+    public function flagDebt(Request $request, int $id): JsonResponse
     {
         $accountant = $request->user();
 
-        $request->validate([
-            'discount_amount' => 'required|numeric|min:0',
-            'reason'          => 'required|string|max:500',
-        ]);
+        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->with('patient')
+            ->findOrFail($id);
 
-        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)->findOrFail($id);
-
-        if ($invoice->lifecycle_status === Invoice::STATUS_LOCKED) {
-            return response()->json(['success' => false, 'message' => 'Cannot discount a locked invoice.'], 422);
+        $appointment = $invoice->appointment;
+        if (!$appointment?->is_emergency_bypass) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Debt flagging is only for emergency appointments.',
+            ], 422);
         }
 
-        $previousTotal = (float) $invoice->total;
-        $invoice->update(['discount_total' => (float) $request->discount_amount]);
-        $invoice->recalculate();
-        $invoice->refresh();
+        $patient = $invoice->patient;
+        if (!$patient) {
+            return response()->json(['success' => false, 'message' => 'Patient not found.'], 404);
+        }
 
-        BillingEvent::log(
-            $invoice,
-            BillingEvent::EVENT_DISCOUNT_APPLIED,
-            -(float) $request->discount_amount,
-            (float) $invoice->total,
-            ['reason' => $request->reason, 'discount' => $request->discount_amount],
-            $accountant->id,
-            $invoice->appointment_id
-        );
+        $patient->flagDebt((float) $invoice->balance, $invoice->id, $accountant->id);
 
         return response()->json([
             'success' => true,
-            'message' => "Discount of ETB {$request->discount_amount} applied.",
+            'message' => "Patient {$patient->full_name} flagged with outstanding debt of ETB " .
+                number_format($invoice->balance, 2) . ".",
             'data'    => [
-                'previous_total'  => $previousTotal,
-                'discount_applied'=> (float) $request->discount_amount,
-                'new_total'       => (float) $invoice->total,
-                'balance'         => (float) $invoice->balance,
+                'patient_id'   => $patient->id,
+                'has_debt'     => true,
+                'debt_amount'  => (float) $invoice->balance,
+                'invoice_id'   => $invoice->id,
             ],
         ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // APPLY INSURANCE COVERAGE
-    // POST /accountant/invoices/{id}/insurance
+    // DEBT LIST  GET /accountant/invoices/debts
+    // REQ-15: Patients with outstanding emergency debt.
     // ─────────────────────────────────────────────────────────────────────────
-    public function applyInsurance(Request $request, int $id): JsonResponse
+    public function debtList(Request $request): JsonResponse
     {
         $accountant = $request->user();
 
-        $request->validate([
-            'coverage_amount' => 'required|numeric|min:0',
-            'provider'        => 'required|string|max:255',
-        ]);
+        $patients = Patient::where('clinic_id', $accountant->clinic_id)
+            ->where('has_debt', true)
+            ->with(['invoices' => fn($q) => $q->where('lifecycle_status', Invoice::STATUS_UNPAID)])
+            ->get()
+            ->map(fn($p) => [
+                'id'            => $p->id,
+                'full_name'     => $p->full_name,
+                'phone'         => $p->phone,
+                'debt_amount'   => (float) $p->debt_amount,
+                'debt_invoice_id' => $p->debt_invoice_id,
+                'debt_flagged_at' => $p->debt_flagged_at?->toDateTimeString(),
+            ]);
 
-        $invoice = Invoice::where('clinic_id', $accountant->clinic_id)->findOrFail($id);
-
-        if ($invoice->lifecycle_status === Invoice::STATUS_LOCKED) {
-            return response()->json(['success' => false, 'message' => 'Cannot modify a locked invoice.'], 422);
-        }
-
-        $coverage = min((float) $request->coverage_amount, (float) $invoice->total);
-        $invoice->update(['insurance_coverage' => $coverage]);
-        $invoice->recalculate();
-        $invoice->refresh();
-
-        BillingEvent::log(
-            $invoice,
-            BillingEvent::EVENT_INSURANCE_APPLIED,
-            -$coverage,
-            (float) $invoice->total,
-            ['provider' => $request->provider, 'coverage' => $coverage],
-            $accountant->id,
-            $invoice->appointment_id
-        );
-
-        return response()->json([
-            'success' => true,
-            'message' => "Insurance coverage of ETB {$coverage} applied.",
-            'data'    => [
-                'insurance_coverage' => $coverage,
-                'new_total'          => (float) $invoice->total,
-                'patient_liability'  => (float) $invoice->balance,
-            ],
-        ]);
+        return response()->json(['success' => true, 'data' => $patients]);
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────────
 
-    private function formatReviewItem(Invoice $invoice): array
+    private function formatInvoice(Invoice $i): array
     {
+        $isEmergency = (bool) ($i->appointment?->is_emergency_bypass ?? false);
         return [
-            'id'                      => $invoice->id,
-            'invoice_number'          => $invoice->invoice_number,
-            'invoice_type'            => $invoice->invoice_type ?? 'treatment',
-            'lifecycle_status'        => $invoice->lifecycle_status,
-            'patient_name'            => $invoice->patient?->full_name ?? '—',
-            'total'                   => (float) $invoice->total,
-            'balance'                 => (float) $invoice->balance,
-            'pre_paid'                => (float) ($invoice->pre_paid ?? 0),
-            'submitted_for_review_at' => $invoice->submitted_for_review_at?->toDateTimeString(),
-            'finalized_by'            => $invoice->finalizedBy?->name ?? '—',
-            'review_notes'            => $invoice->review_notes,
-            'episode_phase'           => $invoice->episode?->phase_number,
+            'id'               => $i->id,
+            'invoice_number'   => $i->invoice_number,
+            'invoice_type'     => $i->invoice_type ?? 'treatment',
+            'lifecycle_status' => $i->lifecycle_status,
+            'patient_name'     => $i->patient?->full_name ?? '—',
+            'patient_has_debt' => (bool) ($i->patient?->has_debt ?? false),
+            'dentist_name'     => $i->appointment?->dentist?->name ?? '—',
+            'total'            => (float) $i->total,
+            'balance'          => (float) $i->balance,
+            'is_emergency'     => $isEmergency,
+            'payment_banner'   => $i->lifecycle_status === Invoice::STATUS_UNPAID
+                ? ($isEmergency ? '🚨 EMERGENCY — PAYMENT REQUIRED — ETB ' : 'PAYMENT REQUIRED — ETB ') .
+                  number_format($i->balance, 2)
+                : null,
+            'issued_at'        => $i->issued_at?->toDateString(),
+            'created_at'       => $i->created_at?->toDateTimeString(),
         ];
     }
 }

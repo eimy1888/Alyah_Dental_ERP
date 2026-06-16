@@ -21,7 +21,7 @@ const updateAdmin = (data) =>
   apiClient.put('/admin/settings/admin', data).then(r => r.data);
 
 const updatePassword = (data) =>
-  apiClient.post('/admin/settings/change-password', data).then(r => r.data);
+  apiClient.put('/admin/settings/password', data).then(r => r.data);
 
 const updateNotifications = (data) =>
   apiClient.put('/admin/settings/notifications', data).then(r => r.data);

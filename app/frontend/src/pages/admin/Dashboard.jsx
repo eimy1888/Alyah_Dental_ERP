@@ -15,9 +15,7 @@ const fmtS = n => {
   if (n >= 1_000_000) return `ETB ${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000)     return `ETB ${(n / 1_000).toFixed(0)}K`;
   return `ETB ${n}`;
-};
-
-export default function ClinicAdminDashboard() {
+};export default function ClinicAdminDashboard() {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');

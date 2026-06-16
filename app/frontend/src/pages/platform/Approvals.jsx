@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Search, Eye, CheckCircle2, XCircle, FileText, Loader2, Copy, Check } from 'lucide-react';
 import { getClinics, approveClinic, rejectClinic } from '../../services/platformService';
 import useApprovalsStore from '../../store/approvalsStore';
@@ -109,6 +110,7 @@ function TempPasswordModal({ clinicName, email, password, onClose }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PlatformApprovals() {
   const { setClinics: setGlobalClinics } = useApprovalsStore();
+  const { t } = useTranslation('platform');
 
   const [clinics,   setClinics]   = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -294,10 +296,10 @@ export default function PlatformApprovals() {
       {/* Header */}
       <div className="mb-6">
         <p className="text-xs font-bold tracking-widest text-blue-600 uppercase mb-1">
-          Platform Admin
+          {t('platformAdmin')}
         </p>
-        <h1 className="text-2xl font-bold text-gray-900">Clinic Approvals</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('approvals')}</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           Review submitted registrations, verify documents, and approve or reject clinic tenants.
         </p>
       </div>
@@ -342,10 +344,10 @@ export default function PlatformApprovals() {
       <div className="flex gap-4">
 
         {/* Table */}
-        <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex-1 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
+              <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
                 {['CLINIC', 'OWNER', 'PLAN', 'CITY', 'SUBMITTED', 'STATUS', ''].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-[10px] font-bold tracking-widest text-gray-400">
                     {h}

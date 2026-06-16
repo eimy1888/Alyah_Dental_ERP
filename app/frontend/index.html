@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/brand/alyah-logo-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Alyah Dental ERP</title>
+    <!-- Anti-flash: apply saved/detected theme before React renders -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('dentflow-theme');
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else if (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

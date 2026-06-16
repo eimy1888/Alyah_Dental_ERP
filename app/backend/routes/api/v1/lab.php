@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\V1\Lab\LabDashboardController;
 use App\Http\Controllers\Api\V1\Lab\LabOrderController;
 use App\Http\Controllers\Api\V1\Lab\LabSettingsController;
 
-Route::middleware(['cookie.auth'])->prefix('lab')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('lab')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────
     Route::get('dashboard', [LabDashboardController::class, 'index']);

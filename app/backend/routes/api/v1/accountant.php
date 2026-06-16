@@ -10,7 +10,7 @@ use App\Http\Controllers\Api\V1\Accountant\ReportController;
 use App\Http\Controllers\Api\V1\Accountant\SettingsController;
 use App\Http\Controllers\Api\V1\Accountant\NotificationController;
 
-Route::middleware(['cookie.auth'])->prefix('accountant')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('accountant')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -35,22 +35,22 @@ Route::middleware(['cookie.auth'])->prefix('accountant')->group(function () {
         Route::delete('/{id}',     [ExpenseController::class, 'destroy']);
     });
 
-    // ── Invoices (legacy + v2 review workflow) ────────────────────────────────
+    // ── Invoices — simplified billing model (REQ-1, REQ-12) ─────────────────
     Route::prefix('invoices')->group(function () {
         Route::get('/export',      [BillingController::class, 'exportInvoices']);
         Route::get('/',            [BillingController::class, 'getInvoices']);
         Route::post('/',           [BillingController::class, 'createInvoice']);
         Route::get('/{id}',        [BillingController::class, 'showInvoice']);
-        Route::post('/{id}/payments', [InvoiceReviewController::class, 'recordPayment']);
 
-        // v2: Invoice Review Workflow
-        Route::get('/review-queue',       [InvoiceReviewController::class, 'reviewQueue']);
-        Route::get('/{id}/review',        [InvoiceReviewController::class, 'show']);
-        Route::post('/{id}/lock',         [InvoiceReviewController::class, 'lock']);
-        Route::post('/{id}/send-back',    [InvoiceReviewController::class, 'sendBack']);
-        Route::post('/{id}/discount',     [InvoiceReviewController::class, 'applyDiscount']);
-        Route::post('/{id}/insurance',    [InvoiceReviewController::class, 'applyInsurance']);
-        Route::get('/{id}/pdf',           [\App\Http\Controllers\Api\V1\Receptionist\InvoicePdfController::class, 'download']);
+        // ── New simplified payment model ──────────────────────────────────
+        // REQ-12: Full payment recording (replaces review queue)
+        Route::get('/unpaid',            [InvoiceReviewController::class, 'unpaidList']);
+        Route::get('/all',               [InvoiceReviewController::class, 'allInvoices']);
+        Route::get('/debts',             [InvoiceReviewController::class, 'debtList']);
+        Route::get('/{id}/detail',       [InvoiceReviewController::class, 'show']);
+        Route::post('/{id}/payments',    [InvoiceReviewController::class, 'recordPayment']);
+        Route::post('/{id}/flag-debt',   [InvoiceReviewController::class, 'flagDebt']);
+        Route::get('/{id}/pdf',          [\App\Http\Controllers\Api\V1\Receptionist\InvoicePdfController::class, 'download']);
     });
 
     // ── Insurance Claims ──────────────────────────────────────────────────────

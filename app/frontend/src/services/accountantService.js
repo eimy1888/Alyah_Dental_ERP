@@ -128,3 +128,26 @@ export const getFilters = () =>
 
 export const getAccountantPatients = (params = {}) =>
   apiClient.get('/accountant/patients', { params }).then((res) => res.data);
+
+// ─────────────────────────────────────────────────────────────
+// INVOICE PAYMENT — Simplified (REQ-1, REQ-3, REQ-12)
+// No review queue. No approval workflow. Full payment only.
+// ─────────────────────────────────────────────────────────────
+
+export const getUnpaidInvoices = (params = {}) =>
+  apiClient.get('/accountant/invoices/unpaid', { params }).then(r => r.data);
+
+export const getAllInvoices = (params = {}) =>
+  apiClient.get('/accountant/invoices/all', { params }).then(r => r.data);
+
+export const getDebtList = () =>
+  apiClient.get('/accountant/invoices/debts').then(r => r.data.data ?? []);
+
+export const getInvoiceDetail = (id) =>
+  apiClient.get(`/accountant/invoices/${id}/detail`).then(r => r.data.data);
+
+export const recordFullPayment = (invoiceId, data) =>
+  apiClient.post(`/accountant/invoices/${invoiceId}/payments`, data).then(r => r.data);
+
+export const flagEmergencyDebt = (invoiceId) =>
+  apiClient.post(`/accountant/invoices/${invoiceId}/flag-debt`).then(r => r.data);

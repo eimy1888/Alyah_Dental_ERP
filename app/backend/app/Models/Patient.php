@@ -39,18 +39,27 @@ class Patient extends Model
         'has_card',
         'card_is_active',
         'last_no_show_at',
+        // REQ-15: Debt tracking for emergency non-payers
+        'has_debt',
+        'debt_amount',
+        'debt_invoice_id',
+        'debt_flagged_at',
+        'debt_flagged_by',
     ];
 
     protected $casts = [
-        'date_of_birth' => 'date',
-        'status' => 'string',
-        'medical_cases' => 'array',
-        'requires_deposit' => 'boolean',
-        'is_blocked' => 'boolean',
-        'vip' => 'boolean',
-        'has_card' => 'boolean',
-        'card_is_active' => 'boolean',
+        'date_of_birth'   => 'date',
+        'status'          => 'string',
+        'medical_cases'   => 'array',
+        'requires_deposit'=> 'boolean',
+        'is_blocked'      => 'boolean',
+        'vip'             => 'boolean',
+        'has_card'        => 'boolean',
+        'card_is_active'  => 'boolean',
+        'has_debt'        => 'boolean',
+        'debt_amount'     => 'decimal:2',
         'last_no_show_at' => 'datetime',
+        'debt_flagged_at' => 'datetime',
     ];
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -98,6 +107,34 @@ class Patient extends Model
         ];
         $this->update([
             'medical_cases' => $cases,
+        ]);
+    }
+
+    /**
+     * REQ-15: Flag patient as having unpaid emergency debt.
+     */
+    public function flagDebt(float $amount, int $invoiceId, int $flaggedBy): void
+    {
+        $this->update([
+            'has_debt'        => true,
+            'debt_amount'     => $amount,
+            'debt_invoice_id' => $invoiceId,
+            'debt_flagged_at' => now(),
+            'debt_flagged_by' => $flaggedBy,
+        ]);
+    }
+
+    /**
+     * REQ-15: Clear debt when emergency invoice is paid.
+     */
+    public function clearDebt(): void
+    {
+        $this->update([
+            'has_debt'        => false,
+            'debt_amount'     => 0,
+            'debt_invoice_id' => null,
+            'debt_flagged_at' => null,
+            'debt_flagged_by' => null,
         ]);
     }
 

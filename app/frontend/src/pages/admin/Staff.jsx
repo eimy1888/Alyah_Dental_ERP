@@ -16,8 +16,11 @@ const deleteStaff = (id) =>
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ROLES = [
-  'Dentist', 'Receptionist', 'Accountant',
-  'Branch Manager', 'Clinic Admin',
+  { label: 'Dentist',        value: 'dentist' },
+  { label: 'Receptionist',   value: 'receptionist' },
+  { label: 'Accountant',     value: 'accountant' },
+  { label: 'Branch Manager', value: 'branch_manager' },
+  { label: 'Clinic Admin',   value: 'clinic_admin' },
 ];
 
 const roleBadge = {
@@ -150,12 +153,12 @@ export default function Staff() {
 
  const handleSave = async (formData, id) => {
     if (id) {
-      const res = await apiClient.post(`/admin/staff/${id}`, formData, {
+      const res = await apiClient.put(`/admin/staff/${id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       invalidate();
       showToast(`${res.data?.data?.name} updated.`);
-      return res.data;  // ← ADD THIS
+      return res.data;
     } else {
       const res = await apiClient.post('/admin/staff', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -255,10 +258,10 @@ export default function Staff() {
             >All</button>
             {ROLES.map(r => (
               <button
-                key={r}
-                onClick={() => setRoleFilter(r === roleFilter ? '' : r)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium ${roleFilter === r ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-              >{r}</button>
+                key={r.value}
+                onClick={() => setRoleFilter(r.value === roleFilter ? '' : r.value)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium ${roleFilter === r.value ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >{r.label}</button>
             ))}
           </div>
         </div>

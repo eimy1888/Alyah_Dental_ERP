@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\V1\Patient\SettingsController;
 use App\Http\Controllers\Api\V1\Patient\NotificationController;
 use App\Http\Controllers\Api\V1\Patient\InvoiceController;
 
-Route::middleware(['cookie.auth'])->prefix('patient')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('patient')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -42,9 +42,12 @@ Route::middleware(['cookie.auth'])->prefix('patient')->group(function () {
     });
 
     // ── Notifications ─────────────────────────────────────
-    Route::get('notifications',             [NotificationController::class, 'index']);
-    Route::put('notifications/{id}/read',   [NotificationController::class, 'markRead']);
-    Route::put('notifications/read-all',    [NotificationController::class, 'markAllRead']);
+    Route::prefix('notifications')->group(function () {
+        Route::get('/count',      [NotificationController::class, 'count']);
+        Route::get('/',           [NotificationController::class, 'index']);
+        Route::put('/{id}/read',  [NotificationController::class, 'markRead']);
+        Route::put('/read-all',   [NotificationController::class, 'markAllRead']);
+    });
 
     // ── Settings ──────────────────────────────────────────
     Route::prefix('settings')->group(function () {
@@ -53,10 +56,4 @@ Route::middleware(['cookie.auth'])->prefix('patient')->group(function () {
         Route::post('/change-password', [SettingsController::class, 'changePassword']);
         Route::get('/clinic-info',      [SettingsController::class, 'getClinicInfo']);
     });
-
-        // ── Notifications ─────────────────────────────────────────────────────
-    Route::get('notifications/count', [NotificationController::class, 'count']);  // ← ADD THIS
-    Route::get('notifications', [NotificationController::class, 'index']);
-    Route::put('notifications/{id}/read', [NotificationController::class, 'markRead']);
-    Route::put('notifications/read-all', [NotificationController::class, 'markAllRead']);
 });

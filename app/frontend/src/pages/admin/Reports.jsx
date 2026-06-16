@@ -396,7 +396,19 @@ export default function Reports() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button onClick={() => showToast('Reports list exported.')}
+          <button onClick={() => {
+            if (!reports.length) { showToast('No reports to export.', 'error'); return; }
+            const rows = [
+              ['Name','Scope','Owner','Format','Status','Last Generated'],
+              ...reports.map(r => [r.name, r.scope, r.owner, r.format, r.status, r.last_generated]),
+            ];
+            const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a'); a.href = url;
+            a.download = `reports-${new Date().toISOString().slice(0,10)}.csv`;
+            a.click(); URL.revokeObjectURL(url);
+          }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white
               text-gray-700 text-sm font-medium hover:bg-gray-50 shadow-sm">
             ↓ Export
