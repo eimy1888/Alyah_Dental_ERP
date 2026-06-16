@@ -11,7 +11,12 @@ use App\Http\Controllers\Api\V1\Clinic\SettingsController;
 use App\Http\Controllers\Api\V1\Clinic\DashboardController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['cookie.auth'])->prefix('admin')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('admin')->group(function () {
+
+    // ── Appointments (Clinic Admin — read + status + cancel across all branches) ──
+    Route::get('appointments',              [\App\Http\Controllers\Api\V1\Receptionist\AppointmentController::class, 'index']);
+    Route::put('appointments/{id}/status',  [\App\Http\Controllers\Api\V1\Receptionist\AppointmentController::class, 'updateStatus']);
+    Route::delete('appointments/{id}',      [\App\Http\Controllers\Api\V1\Receptionist\AppointmentController::class, 'destroy']);
 
     Route::get('dashboard', [DashboardController::class, 'index']);
 
@@ -78,4 +83,8 @@ Route::middleware(['cookie.auth'])->prefix('admin')->group(function () {
 
     Route::put('settings/showcase',     [SettingsController::class, 'updateShowcaseSettings']);
     Route::get('settings/showcase',     [SettingsController::class, 'getShowcaseSettings']);
+
+    // ── Audit Log ─────────────────────────────────────────────────────────────
+    Route::get('audit-logs',        [\App\Http\Controllers\Api\V1\Clinic\AuditLogController::class, 'index']);
+    Route::get('audit-logs/events', [\App\Http\Controllers\Api\V1\Clinic\AuditLogController::class, 'events']);
 });

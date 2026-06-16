@@ -243,15 +243,13 @@ export default function LoginPage() {
           <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 space-y-2.5 text-center">
             <p className="text-[13px] text-gray-500">
               Clinic staff or patient?{' '}
-              <Link to="/clinic/login" className="text-blue-600 font-semibold hover:text-blue-800 transition-colors">
-                Clinic Login →
-              </Link>
-            </p>
-            <p className="text-[13px] text-gray-500">
-              New clinic?{' '}
               <Link to="/register" className="text-blue-600 font-semibold hover:text-blue-800 transition-colors">
                 Register your clinic →
               </Link>
+            </p>
+            <p className="text-[13px] text-gray-500 mt-1">
+              Clinic staff login is at{' '}
+              <span className="font-mono text-blue-600 text-[12px]">/clinic/[your-slug]/login</span>
             </p>
           </div>
 

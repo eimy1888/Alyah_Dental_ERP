@@ -74,6 +74,13 @@ class BranchController extends Controller
             'status'    => $validated['status'] ?? 'active',
         ]);
 
+        \App\Models\AuditLog::record('branch.created', [
+            'subject_type'  => 'Branch',
+            'subject_id'    => $branch->id,
+            'subject_label' => $branch->name,
+            'new_values'    => ['status' => $branch->status, 'location' => $branch->location],
+        ], request());
+
         return response()->json([
             'success' => true,
             'message' => 'Branch created successfully.',
@@ -128,6 +135,13 @@ class BranchController extends Controller
         }
 
         $branch->delete();
+
+        \App\Models\AuditLog::record('branch.deleted', [
+            'subject_type'  => 'Branch',
+            'subject_id'    => $branch->id,
+            'subject_label' => $branch->name,
+            'old_values'    => ['status' => $branch->status],
+        ], request());
 
         return response()->json([
             'success' => true,

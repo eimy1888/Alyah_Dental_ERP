@@ -3,7 +3,7 @@ import {
   Search, X, Eye, Download, Clock, Users,
   Activity, CheckCircle, RefreshCw, Loader2,
   CalendarDays, List, LayoutGrid, ChevronRight, Stethoscope,
-  Play, FlaskConical,
+  Play, FlaskConical, ClipboardList,
 } from 'lucide-react';
 import {
   getAppointments,
@@ -16,6 +16,7 @@ import {
 import apiClient from '../../services/axiosInstance';
 import ReferralModal from '../../components/dentist/ReferralModal';
 import ProcedureModal from '../../components/dentist/ProcedureModal';
+import TreatmentPlanModal from '../../components/dentist/TreatmentPlanModal';
 
 const STATUS_FILTERS = [
   'All','pending','confirmed','checked_in',
@@ -305,6 +306,7 @@ export default function MyAppointments() {
   const [referralModal,  setReferralModal]  = useState(null);
   const [procedureModal, setProcedureModal] = useState(null);
   const [labOrderModal,  setLabOrderModal]  = useState(null);
+  const [treatmentPlanModal, setTreatmentPlanModal] = useState(null);
   const [toast,          setToast]          = useState(null);
   const [pagination,     setPagination]     = useState({ current_page: 1, last_page: 1, total: 0 });
   const [showQueue,      setShowQueue]      = useState(true);
@@ -390,13 +392,12 @@ export default function MyAppointments() {
 
   const canRefer = (status) => !['completed', 'cancelled', 'no_show'].includes(status);
 
-  // ── NEW TREATMENT FLOW ────────────────────────────────────────────────────
-  // in_progress:
-  //   - invoice NOT paid → show "Add Procedure" only
-  //   - invoice paid     → show "Start Treatment" + "Add Procedure"
-  // treatment_started:
-  //   - show "Complete" + "Add Procedure"
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── TREATMENT FLOW (new simple model) ───────────────────────────────────
+  // checked_in  → Start → moves to in_progress
+  // in_progress → CHECKUP COMPLETE (generates UNPAID invoice)
+  //             → invoice UNPAID: show "Waiting for payment…"
+  //             → invoice PAID:   show "Start Treatment"
+  // treatment_started → Add Procedure → Complete
   const getActionButtons = (appt) => {
     const busy = actionLoading === appt.id;
 
@@ -434,19 +435,23 @@ export default function MyAppointments() {
         return (
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => handleStatusUpdate(appt.id, 'in_progress')} disabled={busy}
-              className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 disabled:opacity-50">Start</button>
-            {AddProcedureBtn}
+              className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 disabled:opacity-50">Start Exam</button>
             <button onClick={() => handleStatusUpdate(appt.id, 'no_show')} disabled={busy}
               className="px-3 py-1.5 rounded-lg border border-red-300 text-red-500 text-xs font-semibold hover:bg-red-50 disabled:opacity-50">No Show</button>
           </div>
         );
 
       case 'in_progress':
-        // invoice_paid comes from backend formatAppointment
         return (
           <div className="flex gap-2 flex-wrap">
+            {AddProcedureBtn}
+            {/* CHECKUP COMPLETE — triggers invoice generation */}
+            <button onClick={() => setTreatmentPlanModal(appt)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">
+              <ClipboardList className="w-3 h-3" /> Checkup Complete
+            </button>
+            {/* Payment gate: only show "Start Treatment" when invoice is PAID */}
             {appt.invoice_paid === true ? (
-              // Invoice paid → show "Start Treatment"
               <button
                 onClick={() => handleStatusUpdate(appt.id, 'treatment_started')}
                 disabled={busy}
@@ -454,13 +459,11 @@ export default function MyAppointments() {
               >
                 <Play className="w-3 h-3" /> Start Treatment
               </button>
-            ) : (
-              // Invoice NOT paid → only Add Procedure
-              <span className="text-[10px] text-gray-400 py-1">
-                Waiting for payment…
+            ) : appt.has_invoice && (
+              <span className="text-[10px] text-red-500 font-semibold py-1 flex items-center gap-1">
+                💳 Waiting for payment…
               </span>
             )}
-            {AddProcedureBtn}
           </div>
         );
 
@@ -472,6 +475,13 @@ export default function MyAppointments() {
               Complete
             </button>
             {AddProcedureBtn}
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
           </div>
         );
 
@@ -515,6 +525,16 @@ export default function MyAppointments() {
       {labOrderModal && (
         <LabOrderModal appointment={labOrderModal} onClose={() => setLabOrderModal(null)}
           onSuccess={() => showToast('Lab order created successfully!')} />
+      )}
+      {treatmentPlanModal && (
+        <TreatmentPlanModal
+          appointment={treatmentPlanModal}
+          onClose={() => setTreatmentPlanModal(null)}
+          onSuccess={() => {
+            showToast('Treatment plan submitted to accountant for review.');
+            loadAppointments(pagination.current_page);
+          }}
+        />
       )}
 
       {/* Header */}
@@ -724,6 +744,11 @@ export default function MyAppointments() {
                           title="Create lab order"
                           className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
                           <FlaskConical className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setTreatmentPlanModal(appt)}
+                          title="Treatment plan"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors">
+                          <ClipboardList className="w-4 h-4" />
                         </button>
                         <button onClick={() => setDetailAppt(appt)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">

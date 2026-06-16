@@ -16,6 +16,7 @@ class Clinic extends Model
     protected $fillable = [
         'name',
         'subdomain',
+        'subdomain_active',
         'slug',
         'email',
         'phone',
@@ -30,9 +31,10 @@ class Clinic extends Model
     ];
 
     protected $casts = [
-        'settings' => 'array',
-        'approved_at' => 'datetime',
+        'settings'             => 'array',
+        'approved_at'          => 'datetime',
         'subscription_ends_at' => 'datetime',
+        'subdomain_active'     => 'boolean',
     ];
 
     // ─── Default Settings ─────────────────────────────────────────────────────

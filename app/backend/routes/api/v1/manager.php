@@ -12,7 +12,7 @@ use App\Http\Controllers\Api\V1\Manager\ManagerDentistUnavailableController;
 use App\Http\Controllers\Api\V1\QueueController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['cookie.auth'])->prefix('manager')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('manager')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     Route::get('dashboard', [ManagerDashboardController::class, 'index']);

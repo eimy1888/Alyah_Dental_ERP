@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   X, Save, Loader2, Search, User as UserIcon, Clock,
-  Stethoscope, Wrench,
+  Stethoscope, Wrench, Siren,
 } from 'lucide-react';
 import apiClient from '../../services/axiosInstance';
 import { getEthiopianDate, toEthiopianTime } from '../../lib/utils';
@@ -240,14 +240,13 @@ export default function AppointmentRegistrationModal({
   useEffect(() => {
     if (!allDentists.length) return;
 
-    if (bookingMode === 'treatment') {
-      // TREATMENT: always use General Dentistry only
+    if (bookingMode === 'treatment' || bookingMode === 'emergency') {
+      // TREATMENT / EMERGENCY: always use General Dentistry first, then any if none
       const generals = allDentists.filter((d) => {
         const spec = (d.specialization ?? '').toLowerCase().trim();
         return spec === '' || spec === 'general dentistry';
       });
       const pool = generals.length > 0 ? generals : allDentists;
-      // Pick least-busy (smallest estimated_wait_minutes)
       const best = [...pool].sort((a, b) =>
         (a.estimated_wait_minutes ?? 999) - (b.estimated_wait_minutes ?? 999)
       )[0];
@@ -348,8 +347,8 @@ export default function AppointmentRegistrationModal({
       );
       return matched.length > 0 ? matched : allDentists;
     }
-    // Treatment: only general dentists
-    if (bookingMode === 'treatment') {
+    // Treatment / Emergency: all dentists, but prefer GPs
+    if (bookingMode === 'treatment' || bookingMode === 'emergency') {
       const generals = allDentists.filter((d) => {
         const spec = (d.specialization ?? '').toLowerCase().trim();
         return spec === '' || spec === 'general dentistry';
@@ -491,19 +490,19 @@ export default function AppointmentRegistrationModal({
   const isLoading     = loadingInit || (isPatientRole && loadingPatient);
 
   // Treatment: show date/time immediately after mode selected (dentist auto-assigned)
-  const showDateTimeForTreatment = bookingMode === 'treatment' && form.dentist_id;
+  const showDateTimeForTreatment = (bookingMode === 'treatment' || bookingMode === 'emergency') && form.dentist_id;
   const showDateTimeForService   = bookingMode === 'service' && selectedService && form.dentist_id;
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setError('');
     if (!form.patient_id)       { setError('Please select a patient.'); return; }
-    if (!bookingMode)           { setError('Please choose Service or Treatment.'); return; }
+    if (!bookingMode)           { setError('Please choose Service, Treatment or Emergency.'); return; }
     if (bookingMode === 'service' && !selectedService) { setError('Please select a service.'); return; }
     if (!form.dentist_id)       { setError('Please select a dentist.'); return; }
     if (!form.appointment_date) { setError('Please select a date.'); return; }
     if (!form.appointment_time) { setError('Please select an appointment time.'); return; }
-    if (!isTimeValid && freeRanges.length > 0) {
+    if (!isTimeValid && freeRanges.length > 0 && bookingMode !== 'emergency') {
       setError('Selected time does not fit within a free period.'); return;
     }
 
@@ -517,17 +516,22 @@ export default function AppointmentRegistrationModal({
       : (selectedDentistObj?.user_id ? Number(selectedDentistObj.user_id) : Number(form.dentist_id));
 
     const payload = {
-      patient_id:       form.patient_id,
-      dentist_id:       dentistIdForPayload,
-      appointment_time: appointmentDatetime,
-      duration_minutes: Number(form.duration_minutes),
-      type:             bookingMode === 'service'
-                          ? (selectedService?.name ?? 'Consultation')
-                          : 'General Treatment',
-      notes:            form.notes || '',
-      status:           appointmentStatus,
-      service_id:       bookingMode === 'service' ? (selectedService?.id ?? null) : null,
-      billing_model:    bookingMode === 'service' ? 'service' : 'treatment',
+      patient_id:          form.patient_id,
+      dentist_id:          dentistIdForPayload,
+      appointment_time:    appointmentDatetime,
+      duration_minutes:    Number(form.duration_minutes),
+      type:                bookingMode === 'service'
+                             ? (selectedService?.name ?? 'Consultation')
+                             : bookingMode === 'emergency'
+                             ? 'Emergency'
+                             : 'General Treatment',
+      notes:               form.notes || '',
+      status:              appointmentStatus,
+      service_id:          bookingMode === 'service' ? (selectedService?.id ?? null) : null,
+      billing_model:       bookingMode === 'service' ? 'service' : 'treatment',
+      // smart booking fields
+      appointment_kind:    bookingMode,
+      is_emergency_bypass: bookingMode === 'emergency',
     };
 
     setSaving(true);
@@ -553,7 +557,7 @@ export default function AppointmentRegistrationModal({
     }
   };
 
-  const canSave = !saving && !isLoading && isTimeValid && !!form.patient_id;
+  const canSave = !saving && !isLoading && (isTimeValid || bookingMode === 'emergency') && !!form.patient_id;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -632,33 +636,53 @@ export default function AppointmentRegistrationModal({
                 <label className="block text-xs font-semibold text-gray-600 mb-2">
                   Booking Type <span className="text-red-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   <button type="button" onClick={() => handleModeSelect('service')}
-                    className={`flex flex-col items-start gap-1.5 p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 text-left transition-all ${
                       bookingMode === 'service' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'
                     }`}>
-                    <div className="flex items-center gap-2">
-                      <Stethoscope className={`w-4 h-4 ${bookingMode === 'service' ? 'text-blue-600' : 'text-gray-400'}`} />
-                      <span className={`text-sm font-bold ${bookingMode === 'service' ? 'text-blue-700' : 'text-gray-700'}`}>Service</span>
+                    <div className="flex items-center gap-1.5">
+                      <Stethoscope className={`w-3.5 h-3.5 ${bookingMode === 'service' ? 'text-blue-600' : 'text-gray-400'}`} />
+                      <span className={`text-xs font-bold ${bookingMode === 'service' ? 'text-blue-700' : 'text-gray-700'}`}>Service</span>
                     </div>
-                    <p className="text-[10px] text-gray-400 leading-tight">Pick a specific service (cleaning, whitening, filling…)</p>
+                    <p className="text-[10px] text-gray-400 leading-tight">Fixed service (cleaning, X-ray…)</p>
                   </button>
 
                   <button type="button" onClick={() => handleModeSelect('treatment')}
-                    className={`flex flex-col items-start gap-1.5 p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 text-left transition-all ${
                       bookingMode === 'treatment' ? 'border-violet-500 bg-violet-50' : 'border-gray-200 bg-white hover:border-violet-300'
                     }`}>
-                    <div className="flex items-center gap-2">
-                      <Wrench className={`w-4 h-4 ${bookingMode === 'treatment' ? 'text-violet-600' : 'text-gray-400'}`} />
-                      <span className={`text-sm font-bold ${bookingMode === 'treatment' ? 'text-violet-700' : 'text-gray-700'}`}>Treatment</span>
+                    <div className="flex items-center gap-1.5">
+                      <Wrench className={`w-3.5 h-3.5 ${bookingMode === 'treatment' ? 'text-violet-600' : 'text-gray-400'}`} />
+                      <span className={`text-xs font-bold ${bookingMode === 'treatment' ? 'text-violet-700' : 'text-gray-700'}`}>Treatment</span>
                     </div>
-                    <p className="text-[10px] text-gray-400 leading-tight">See a dentist — doctor decides procedures</p>
+                    <p className="text-[10px] text-gray-400 leading-tight">GP triage, unknown cost</p>
                   </button>
+
+                  {!isPatientRole && (
+                    <button type="button" onClick={() => handleModeSelect('emergency')}
+                      className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 text-left transition-all ${
+                        bookingMode === 'emergency' ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-white hover:border-red-300'
+                      }`}>
+                      <div className="flex items-center gap-1.5">
+                        <Siren className={`w-3.5 h-3.5 ${bookingMode === 'emergency' ? 'text-red-600' : 'text-gray-400'}`} />
+                        <span className={`text-xs font-bold ${bookingMode === 'emergency' ? 'text-red-700' : 'text-gray-700'}`}>Emergency</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-tight">Bypasses card &amp; payment gate</p>
+                    </button>
+                  )}
                 </div>
+
+                {bookingMode === 'emergency' && (
+                  <div className="mt-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold flex items-center gap-2">
+                    <Siren className="w-3.5 h-3.5 shrink-0" />
+                    Emergency bypass active — card check and payment gate skipped. Patient billed after treatment.
+                  </div>
+                )}
               </div>
 
-              {/* ── TREATMENT: auto-assigned dentist banner ── */}
-              {bookingMode === 'treatment' && autoAssignedDentist && (
+              {/* ── TREATMENT / EMERGENCY: auto-assigned dentist banner ── */}
+              {(bookingMode === 'treatment' || bookingMode === 'emergency') && autoAssignedDentist && (
                 <div className="px-4 py-3 rounded-xl bg-violet-50 border border-violet-200">
                   <p className="text-xs font-semibold text-violet-700 mb-0.5">
                     Auto-assigned: <strong>Dr. {autoAssignedDentist.name}</strong>

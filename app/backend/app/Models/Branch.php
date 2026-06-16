@@ -14,6 +14,8 @@ class Branch extends Model
     protected $fillable = [
         'clinic_id',
         'name',
+        'subdomain',
+        'subdomain_active',
         'location',
         'phone',
         'email',
@@ -22,8 +24,36 @@ class Branch extends Model
     ];
 
     protected $casts = [
-        'status' => 'string',
+        'status'           => 'string',
+        'subdomain_active' => 'boolean',
     ];
+
+    /**
+     * Generate a unique branch subdomain: {branch-slug}.{clinic-subdomain}
+     * Max 63 chars, lowercase alphanumeric + hyphens.
+     */
+    public static function generateSubdomain(string $branchName, string $clinicSubdomain): string
+    {
+        $branchSlug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $branchName));
+        $branchSlug = trim($branchSlug, '-');
+
+        $base = $branchSlug . '.' . $clinicSubdomain;
+        // Enforce max 63 chars for subdomain label
+        if (strlen($base) > 63) {
+            $maxBranchLen = 63 - strlen($clinicSubdomain) - 1;
+            $branchSlug = substr($branchSlug, 0, $maxBranchLen);
+            $base = $branchSlug . '.' . $clinicSubdomain;
+        }
+
+        $subdomain = $base;
+        $i = 2;
+        while (static::where('subdomain', $subdomain)->exists()) {
+            $subdomain = $branchSlug . '-' . $i . '.' . $clinicSubdomain;
+            $i++;
+        }
+
+        return $subdomain;
+    }
 
     // ── Relationships ─────────────────────────────────────────────────────────
 

@@ -232,3 +232,31 @@ export const completeProcedures = async (appointmentId) => {
   const res = await apiClient.post(`/dentist/procedures/complete/${appointmentId}`);
   return res.data;
 };
+
+// ─────────────────────────────────────────────────────────────
+// TREATMENT PLANS
+// ─────────────────────────────────────────────────────────────
+
+export const getTreatmentPlans = (params = {}) =>
+  apiClient.get('/dentist/treatment-plans', { params }).then(r => r.data);
+
+export const getTreatmentPlan = (id) =>
+  apiClient.get(`/dentist/treatment-plans/${id}`).then(r => r.data.data);
+
+export const createTreatmentPlan = (data) =>
+  apiClient.post('/dentist/treatment-plans', data).then(r => r.data);
+
+export const updateTreatmentPlan = (id, data) =>
+  apiClient.put(`/dentist/treatment-plans/${id}`, data).then(r => r.data);
+
+export const completeTreatmentPlan = (id) =>
+  apiClient.post(`/dentist/treatment-plans/${id}/complete`).then(r => r.data);
+
+export const getDiagnosticServices = () =>
+  apiClient.get('/dentist/treatment-plans/diagnostic-services').then(r => r.data.data);
+
+export const orderDiagnosticTest = (data) =>
+  apiClient.post('/dentist/treatment-plans/diagnostic-test', data).then(r => r.data);
+
+export const getDentistServices = () =>
+  apiClient.get('/dentist/settings/services').then(r => r.data.data ?? r.data);

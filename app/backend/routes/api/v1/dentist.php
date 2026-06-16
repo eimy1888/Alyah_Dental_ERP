@@ -9,9 +9,10 @@ use App\Http\Controllers\Api\V1\Dentist\NotificationController;
 use App\Http\Controllers\Api\V1\Dentist\SettingsController;
 use App\Http\Controllers\Api\V1\Dentist\ReferralController;
 use App\Http\Controllers\Api\V1\Dentist\TreatmentEpisodeController;
+use App\Http\Controllers\Api\V1\Dentist\TreatmentPlanController;
 use App\Http\Controllers\Api\V1\QueueController;
 
-Route::middleware(['cookie.auth'])->prefix('dentist')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -103,5 +104,16 @@ Route::middleware(['cookie.auth'])->prefix('dentist')->group(function () {
         Route::post('/{episodeId}/finalize',            [TreatmentEpisodeController::class, 'finalize']);
         Route::post('/{episodeId}/pending-lab',         [TreatmentEpisodeController::class, 'markPendingLab']);
         Route::post('/{episodeId}/resume',              [TreatmentEpisodeController::class, 'resumeFromLab']);
+    });
+
+    // ── Treatment Plans (smart booking flow) ─────────────
+    Route::prefix('treatment-plans')->group(function () {
+        Route::get('/diagnostic-services',              [TreatmentPlanController::class, 'diagnosticServices']);
+        Route::post('/diagnostic-test',                 [TreatmentPlanController::class, 'orderDiagnosticTest']);
+        Route::get('/',                                 [TreatmentPlanController::class, 'index']);
+        Route::post('/',                                [TreatmentPlanController::class, 'store']);
+        Route::get('/{id}',                             [TreatmentPlanController::class, 'show']);
+        Route::put('/{id}',                             [TreatmentPlanController::class, 'update']);
+        Route::post('/{id}/complete',                   [TreatmentPlanController::class, 'complete']);
     });
 });

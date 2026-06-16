@@ -11,7 +11,7 @@ use App\Http\Controllers\Api\V1\Receptionist\SettingController;
 use App\Http\Controllers\Api\V1\Receptionist\WaitlistController;
 use App\Http\Controllers\Api\V1\QueueController;
 
-Route::middleware(['cookie.auth'])->prefix('receptionist')->group(function () {
+Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('receptionist')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     Route::get('dashboard', [DashboardController::class, 'index']);

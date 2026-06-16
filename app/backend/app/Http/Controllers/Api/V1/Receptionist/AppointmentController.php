@@ -177,12 +177,19 @@ class AppointmentController extends Controller
             'service_id'          => 'nullable|exists:services,id',
             'billing_model'       => 'nullable|in:service,treatment,hybrid',
             'appointment_type_id' => 'nullable|exists:appointment_types,id',
+            // smart booking fields
+            'appointment_kind'    => 'nullable|in:service,treatment,emergency',
+            'is_emergency_bypass' => 'nullable|boolean',
         ]);
 
         $user = $request->user();
 
+        // Emergency bypass skips card check entirely
+        $isEmergency = (bool) ($validated['is_emergency_bypass'] ?? false)
+            || ($validated['appointment_kind'] ?? '') === 'emergency';
+
         // ─────────────────────────────────────────────────────────
-        // CHECK IF PATIENT HAS ACTIVE CLINIC CARD
+        // CHECK IF PATIENT HAS ACTIVE CLINIC CARD (skip for emergency)
         // ─────────────────────────────────────────────────────────
         $patient = Patient::forClinic($user->clinic_id)
             ->forBranch($user->branch_id)
@@ -196,7 +203,7 @@ class AppointmentController extends Controller
             ], 404);
         }
 
-        if (!$patient->hasActiveCard()) {
+        if (!$isEmergency && !$patient->hasActiveCard()) {
             // Check if there's an unpaid card invoice
             $unpaidCardInvoice = Invoice::forClinic($user->clinic_id)
                 ->forBranch($user->branch_id)
@@ -273,7 +280,11 @@ class AppointmentController extends Controller
                 ->whereNotIn('status', ['completed', 'cancelled', 'no_show'])
                 ->exists();
 
-            if ($patientActive) {
+            $isEmergencyInner = (bool) ($validated['is_emergency_bypass'] ?? false)
+                || ($validated['appointment_kind'] ?? '') === 'emergency';
+
+            // Skip active-appointment check for emergency
+            if (!$isEmergencyInner && $patientActive) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Patient already has an active appointment.',
@@ -296,6 +307,9 @@ class AppointmentController extends Controller
                 'service_id'          => $validated['service_id'] ?? null,
                 'billing_model'       => $validated['billing_model'] ?? null,
                 'appointment_type_id' => $validated['appointment_type_id'] ?? null,
+                // smart booking fields
+                'appointment_kind'    => $validated['appointment_kind'] ?? null,
+                'is_emergency_bypass' => $isEmergencyInner,
             ]);
 
             if ($staff) {

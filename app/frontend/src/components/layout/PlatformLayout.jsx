@@ -1,23 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Heart, LayoutDashboard, Building2, ShieldCheck,
   CreditCard, Users, Settings, ChevronLeft, ChevronRight,
-  LogOut, Bell, Stethoscope,
+  LogOut, Bell, ClipboardList, Sun, Moon,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../../lib/i18n';
 import useAuthStore from '../../store/authStore';
+import { useTheme } from '../../hooks/useTheme';
 import useApprovalsStore from '../../store/approvalsStore';
+import { getClinics } from '../../services/platformService';
 
-const navItems = [
-  { label: 'Dashboard',     to: '/platform/dashboard',     icon: LayoutDashboard },
-  { label: 'Clinics',       to: '/platform/clinics',       icon: Building2 },
-  { label: 'Approvals',     to: '/platform/approvals',     icon: ShieldCheck, badge: true },
-  { label: 'Subscriptions', to: '/platform/subscriptions', icon: CreditCard },
-  { label: 'Users',         to: '/platform/users',         icon: Users },
-  { label: 'Settings',      to: '/platform/settings',      icon: Settings },
+const NAV_KEYS = [
+  { key: 'dashboard',     to: '/platform/dashboard',     icon: LayoutDashboard },
+  { key: 'clinics',       to: '/platform/clinics',       icon: Building2 },
+  { key: 'approvals',     to: '/platform/approvals',     icon: ShieldCheck, badge: true },
+  { key: 'subscriptions', to: '/platform/subscriptions', icon: CreditCard },
+  { key: 'users',         to: '/platform/users',         icon: Users },
+  { key: 'auditLog',      to: '/platform/audit-log',     icon: ClipboardList },
+  { key: 'settings',      to: '/platform/settings',      icon: Settings },
 ];
 
-function SidebarContent({ collapsed, location, pendingCount, user, onLinkClick, onLogout }) {
+function SidebarContent({ collapsed, location, pendingCount, user, onLinkClick, onLogout, navItems, t }) {
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : 'PA';
@@ -43,7 +48,7 @@ function SidebarContent({ collapsed, location, pendingCount, user, onLinkClick, 
               <span className="text-[11px] font-black text-white">{initials}</span>
             </div>
             <div className="min-w-0">
-              <p className="text-[12.5px] font-bold text-white leading-none truncate">{user.name ?? 'Platform Admin'}</p>
+              <p className="text-[12.5px] font-bold text-white leading-none truncate">{user.name ?? t('platformAdmin')}</p>
               <p className="text-[10px] text-white/40 mt-0.5 truncate">{user.email ?? ''}</p>
             </div>
           </div>
@@ -82,7 +87,7 @@ function SidebarContent({ collapsed, location, pendingCount, user, onLinkClick, 
         <button onClick={onLogout}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-red-400 hover:bg-red-500/15 hover:text-red-300 transition-all ${collapsed ? 'justify-center' : ''}`}>
           <LogOut size={16} />
-          {!collapsed && <span>Logout</span>}
+          {!collapsed && <span>{t('logout')}</span>}
         </button>
       </div>
     </div>
@@ -95,24 +100,48 @@ export default function PlatformLayout() {
   const location  = useLocation();
   const navigate  = useNavigate();
   const { user, logout } = useAuthStore();
-  const { pendingCount } = useApprovalsStore();
+  const { theme, toggleTheme } = useTheme();
+  const { t } = useTranslation('platform');
+  const { pendingCount, setClinics: setGlobalClinics } = useApprovalsStore();
+
+  const navItems = NAV_KEYS.map(({ key, to, icon, badge }) => ({
+    label: t(key),
+    to,
+    icon,
+    badge,
+  }));
+
+  const currentLang = i18n.language?.startsWith('am') ? 'am' : 'en';
+  const toggleLang = () => {
+    const next = currentLang === 'en' ? 'am' : 'en';
+    i18n.changeLanguage(next);
+    try { localStorage.setItem('dentflow-lang', next); } catch {}
+  };
+
+  // Seed pending approvals count on layout mount so bell badge shows immediately
+  useEffect(() => {
+    getClinics().then((res) => {
+      const all = res.data ?? [];
+      setGlobalClinics(all);
+    }).catch(() => {/* silent — badge just stays 0 */});
+  }, [setGlobalClinics]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : 'PA';
 
-  const sidebarProps = { collapsed, location, pendingCount, user, onLinkClick: () => setMobileOpen(false), onLogout: handleLogout };
+  const sidebarProps = { collapsed, location, pendingCount, user, onLinkClick: () => setMobileOpen(false), onLogout: handleLogout, navItems, t };
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex">
+    <div className="min-h-screen bg-[#F0F4F8] dark:bg-gray-950 flex">
 
       {/* Desktop sidebar */}
       <aside className={`hidden md:flex flex-col bg-[#0D1B2A] shrink-0 transition-all duration-300 relative ${collapsed ? 'w-[68px]' : 'w-[240px]'}`}>
         <SidebarContent {...sidebarProps} />
         <button onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-[72px] w-6 h-6 rounded-full bg-white border border-gray-200 shadow-md flex items-center justify-center z-10 hover:bg-gray-50 transition-colors">
-          {collapsed ? <ChevronRight className="w-3 h-3 text-gray-500" /> : <ChevronLeft className="w-3 h-3 text-gray-500" />}
+          className="absolute -right-3 top-[72px] w-6 h-6 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-md flex items-center justify-center z-10 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+          {collapsed ? <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-300" /> : <ChevronLeft className="w-3 h-3 text-gray-500 dark:text-gray-300" />}
         </button>
       </aside>
 
@@ -130,25 +159,25 @@ export default function PlatformLayout() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Topbar */}
-        <header className="h-[60px] bg-white border-b border-gray-100 flex items-center justify-between px-4 md:px-6 shrink-0 sticky top-0 z-20"
+        <header className="h-[60px] bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between px-4 md:px-6 shrink-0 sticky top-0 z-20"
           style={{ boxShadow: '0 1px 0 #e2e8f0' }}>
           <div className="flex items-center gap-3">
-            <button className="md:hidden p-2 rounded-xl text-gray-500 hover:bg-gray-100" onClick={() => setMobileOpen(true)}>
+            <button className="md:hidden p-2 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" onClick={() => setMobileOpen(true)}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
             <div className="flex items-center gap-1.5 text-[13px]">
-              <span className="text-gray-400 hidden sm:inline">Alyah Dental ERP</span>
-              <span className="text-gray-300 hidden sm:inline">/</span>
-              <span className="font-semibold text-gray-700">Platform Admin</span>
+              <span className="text-gray-400 dark:text-gray-500 hidden sm:inline">Alyah Dental ERP</span>
+              <span className="text-gray-300 dark:text-gray-600 hidden sm:inline">/</span>
+              <span className="font-semibold text-gray-700 dark:text-gray-200">{t('platformAdmin')}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
             {/* Pending approvals bell */}
             <Link to="/platform/approvals"
-              className="relative p-2 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors"
+              className="relative p-2 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               title={pendingCount > 0 ? `${pendingCount} pending approvals` : 'No pending approvals'}>
               <Bell size={18} />
               {pendingCount > 0 && (
@@ -158,20 +187,38 @@ export default function PlatformLayout() {
               )}
             </Link>
 
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            >
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+
+            {/* Language toggle */}
+            <button
+              onClick={toggleLang}
+              className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border border-gray-200 dark:border-gray-700"
+              title="Toggle language / ቋንቋ ቀይር"
+            >
+              {currentLang === 'en' ? 'EN' : 'አማ'}
+            </button>
+
             {/* Avatar */}
             <div className="flex items-center gap-2 pl-1">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shrink-0">
                 <span className="text-[11px] font-black text-white">{initials}</span>
               </div>
               <div className="hidden sm:block leading-none">
-                <p className="text-[12px] font-bold text-gray-800">{user?.name ?? 'Admin'}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Platform Admin</p>
+                <p className="text-[12px] font-bold text-gray-800 dark:text-gray-100">{user?.name ?? 'Admin'}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{t('platformAdmin')}</p>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-5 lg:p-7">
+        <main className="flex-1 overflow-y-auto p-5 lg:p-7 dark:bg-gray-950">
           <Outlet />
         </main>
       </div>

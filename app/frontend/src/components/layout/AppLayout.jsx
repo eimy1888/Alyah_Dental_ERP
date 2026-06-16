@@ -32,14 +32,16 @@ function useETTClock() {
 /* ── Nav config ────────────────────────────────────────────────────────────── */
 const NAV_CONFIG = {
   clinic_admin: [
-    { label: 'Dashboard', to: '/admin/dashboard',  icon: LayoutDashboard },
-    { label: 'Branches',  to: '/admin/branches',   icon: Building2 },
-    { label: 'Staff',     to: '/admin/staff',       icon: UserCog },
-    { label: 'Billing',   to: '/admin/billing',     icon: Receipt },
-    { label: 'Finance',   to: '/admin/finance',     icon: TrendingUp },
-    { label: 'Inventory', to: '/admin/inventory',   icon: Package },
-    { label: 'Reports',   to: '/admin/reports',     icon: BarChart3 },
-    { label: 'Settings',  to: '/admin/settings',    icon: Settings },
+    { label: 'Dashboard',  to: '/admin/dashboard',  icon: LayoutDashboard },
+    { label: 'Branches',   to: '/admin/branches',   icon: Building2 },
+    { label: 'Staff',      to: '/admin/staff',       icon: UserCog },
+    { label: 'Dentists',   to: '/admin/dentists',    icon: Users },
+    { label: 'Billing',    to: '/admin/billing',     icon: Receipt },
+    { label: 'Finance',    to: '/admin/finance',     icon: TrendingUp },
+    { label: 'Inventory',  to: '/admin/inventory',   icon: Package },
+    { label: 'Reports',    to: '/admin/reports',     icon: BarChart3 },
+    { label: 'Audit Log',  to: '/admin/audit-log',   icon: ClipboardList },
+    { label: 'Settings',   to: '/admin/settings',    icon: Settings },
   ],
   branch_manager: [
     { label: 'Dashboard',    to: '/manager/dashboard',    icon: LayoutDashboard },
@@ -201,7 +203,7 @@ export default function AppLayout() {
     const branchName = user?.branch?.name ?? '';
     if (role === 'clinic_admin') {
       setCtxName(clinicName);
-      apiClient.get('/clinic/branches').then(r => {
+      apiClient.get('/admin/branches').then(r => {
         const list = r.data?.data ?? [];
         setBranches(list);
         if (list.length > 0) setSelBranch(String(list[0].id));

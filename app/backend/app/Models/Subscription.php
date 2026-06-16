@@ -17,15 +17,17 @@ class Subscription extends Model
         'amount_paid',
         'payment_method',
         'payment_reference',
+        'payment_date',
         'status',
         'starts_at',
         'ends_at',
     ];
 
     protected $casts = [
-        'amount_paid' => 'decimal:2',
-        'starts_at'   => 'datetime',
-        'ends_at'     => 'datetime',
+        'amount_paid'  => 'decimal:2',
+        'starts_at'    => 'datetime',
+        'ends_at'      => 'datetime',
+        'payment_date' => 'date',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -47,13 +49,53 @@ class Subscription extends Model
         return $this->status === 'active';
     }
 
-    /**
-     * Calculate the end date based on billing cycle.
-     */
-    public static function calculateEndsAt(string $billingCycle, \Carbon\Carbon $startsAt): \Carbon\Carbon
+    public function isExpired(): bool
     {
-        return $billingCycle === 'annual'
-            ? $startsAt->copy()->addYear()
-            : $startsAt->copy()->addMonth();
+        return $this->status === 'expired'
+            || ($this->ends_at && $this->ends_at->isPast());
+    }
+
+    /**
+     * Days remaining until expiry. Returns 0 if already expired.
+     */
+    public function daysRemaining(): int
+    {
+        if (!$this->ends_at || $this->ends_at->isPast()) {
+            return 0;
+        }
+
+        return (int) now()->diffInDays($this->ends_at, false);
+    }
+
+    /**
+     * Calculate the end date based on billing cycle and plan.
+     * Pass $plan to correctly resolve 'days' cycle duration.
+     */
+    public static function calculateEndsAt(string $billingCycle, \Carbon\Carbon $startsAt, ?\App\Models\Plan $plan = null): \Carbon\Carbon
+    {
+        return match ($billingCycle) {
+            'annual'  => $startsAt->copy()->addDays(365),
+            'monthly' => $startsAt->copy()->addDays(30),
+            'days'    => $startsAt->copy()->addDays($plan?->duration_days ?? 30),
+            default   => $startsAt->copy()->addDays(30),
+        };
+    }
+
+    // ─── Scopes ───────────────────────────────────────────────────────────────
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    public function scopeExpired($query)
+    {
+        return $query->where('status', 'expired');
+    }
+
+    public function scopeDue($query)
+    {
+        return $query->where('status', 'active')
+            ->where('ends_at', '<=', now());
     }
 }

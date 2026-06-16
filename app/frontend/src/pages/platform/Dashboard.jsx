@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Building2, CreditCard, ShieldCheck, Zap, TrendingUp, ArrowUpRight, Loader2, RefreshCw,
 } from 'lucide-react';
@@ -11,13 +12,6 @@ import { getClinics, getPlatformAnalytics } from '../../services/platformService
 import {
   StatCardGradient, SectionCard, PageHeader, StatusBadge, DataTable,
 } from '../../components/ui/DashCard';
-
-const healthIndicators = [
-  { label: 'API response time',   value: '142ms',  badge: 'p95 latency',        badgeColor: 'bg-blue-50 text-blue-600 border-blue-100' },
-  { label: 'Failed logins (24h)', value: '3',      badge: 'No anomalies',       badgeColor: 'bg-green-50 text-green-700 border-green-100' },
-  { label: 'Storage used',        value: '1.2 TB', badge: '60% of capacity',    badgeColor: 'bg-amber-50 text-amber-700 border-amber-100' },
-  { label: 'Scheduled jobs',      value: '100%',   badge: 'All queues healthy', badgeColor: 'bg-green-50 text-green-700 border-green-100' },
-];
 
 const statusColors = {
   active:                    'active',
@@ -39,6 +33,7 @@ const PLAN_COLORS = { enterprise: 'bg-blue-500', pro: 'bg-green-500', basic: 'bg
 const tooltipStyle = { borderRadius: 12, border: 'none', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', fontSize: 12 };
 
 export default function PlatformDashboard() {
+  const { t } = useTranslation('platform');
   const [clinics,   setClinics]   = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [loading,   setLoading]   = useState(true);
@@ -73,9 +68,9 @@ export default function PlatformDashboard() {
 
   const kpis = analytics ? [
     { gradient: 'blue',   label: 'Total Clinics',       icon: Building2,  value: analytics.kpis.total_active_clinics,       sub: `${clinics.filter(c => c.status === 'active').length} active` },
-    { gradient: 'green',  label: 'MRR',                 icon: CreditCard, value: analytics.kpis.current_mrr_formatted,      sub: `${analytics.kpis.mrr_growth_pct >= 0 ? '+' : ''}${analytics.kpis.mrr_growth_pct}% vs last month` },
+    { gradient: 'green',  label: 'MRR',                 icon: CreditCard, value: analytics.kpis.current_mrr_formatted?.replace('$', 'ETB '), sub: `${analytics.kpis.mrr_growth_pct >= 0 ? '+' : ''}${analytics.kpis.mrr_growth_pct}% vs last month` },
     { gradient: 'amber',  label: 'Pending Approvals',   icon: ShieldCheck, value: String(analytics.kpis.pending_approvals).padStart(2, '0'), sub: 'Awaiting review' },
-    { gradient: 'violet', label: 'SLA Uptime',          icon: Zap,        value: '99.98%',                                   sub: 'Last 30 days' },
+    { gradient: 'violet', label: 'Active Subscriptions', icon: Zap,        value: analytics.plan_mix?.reduce((s, p) => s + p.count, 0) ?? 0, sub: 'Across all plans' },
   ] : [];
 
   const pendingClinics = clinics.filter(c => c.status === 'pending_platform_approval').slice(0, 5);
@@ -83,8 +78,8 @@ export default function PlatformDashboard() {
   return (
     <div className="space-y-7">
       <PageHeader
-        eyebrow="Platform Admin"
-        title="Platform Command Center"
+        eyebrow={t('platformAdmin')}
+        title={t('dashboard')}
         subtitle="Control clinic growth, subscriptions, approvals, and SaaS-wide metrics."
         actions={
           <button onClick={fetchAll} className="p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-100 transition-colors" title="Refresh">
@@ -224,9 +219,34 @@ export default function PlatformDashboard() {
           </DataTable>
         </SectionCard>
 
-        <SectionCard title="Platform Health" subtitle="Infrastructure indicators">
+        <SectionCard title="Platform Health" subtitle="Subscription & clinic status">
           <div className="p-5 grid grid-cols-2 gap-3">
-            {healthIndicators.map(item => (
+            {[
+              {
+                label:     'Active Clinics',
+                value:     analytics?.kpis?.total_active_clinics ?? 0,
+                badge:     'Currently active',
+                badgeColor:'bg-green-50 text-green-700 border-green-100',
+              },
+              {
+                label:     'Pending Approvals',
+                value:     analytics?.kpis?.pending_approvals ?? 0,
+                badge:     analytics?.kpis?.pending_approvals > 0 ? 'Action needed' : 'All clear',
+                badgeColor: analytics?.kpis?.pending_approvals > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-green-50 text-green-700 border-green-100',
+              },
+              {
+                label:     'Active Subscriptions',
+                value:     analytics?.plan_mix?.reduce((s, p) => s + p.count, 0) ?? 0,
+                badge:     'Paid & free plans',
+                badgeColor:'bg-blue-50 text-blue-600 border-blue-100',
+              },
+              {
+                label:     'Expiring Soon',
+                value:     clinics.filter(c => c.expiry_warning).length,
+                badge:     clinics.filter(c => c.expiry_warning).length > 0 ? '≤7 days left' : 'None expiring',
+                badgeColor: clinics.filter(c => c.expiry_warning).length > 0 ? 'bg-red-50 text-red-700 border-red-100' : 'bg-green-50 text-green-700 border-green-100',
+              },
+            ].map(item => (
               <div key={item.label} className="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
                 <p className="text-[11px] text-gray-500 mb-1">{item.label}</p>
                 <p className="text-[22px] font-black text-gray-900 mb-2">{item.value}</p>

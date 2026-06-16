@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, Users, ShieldCheck, Info, Loader2 } from 'lucide-react';
 import { getUsers } from '../../services/platformService';
 
@@ -21,9 +22,9 @@ const roleLabels = {
 };
 
 const statusColors = {
-  active:    'bg-green-50 text-green-700 border border-green-200',
-  suspended: 'bg-red-50 text-red-700 border border-red-200',
-  pending:   'bg-amber-50 text-amber-700 border border-amber-200',
+  active:   'bg-green-50 text-green-700 border border-green-200',
+  inactive: 'bg-red-50 text-red-700 border border-red-200',
+  suspended:'bg-red-50 text-red-700 border border-red-200',
 };
 
 const ALL_ROLES = [
@@ -36,6 +37,7 @@ const ALL_ROLES = [
 ];
 
 export default function PlatformUsers() {
+  const { t } = useTranslation('platform');
   const [users,        setUsers]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
@@ -76,7 +78,10 @@ export default function PlatformUsers() {
   });
 
   const getRole = (u) => u.role ?? u.roles?.[0]?.name ?? 'clinic_admin';
-  const getStatus = (u) => u.status ?? (u.is_active ? 'active' : 'suspended');
+  const getStatus = (u) => {
+    if (u.status) return u.status;
+    return u.is_active ? 'active' : 'inactive';
+  };
   const getClinic = (u) => u.clinic ?? u.tenant?.name ?? '—';
   const getCity   = (u) => u.city   ?? u.tenant?.city ?? '—';
   const getJoined = (u) => {
@@ -88,10 +93,9 @@ export default function PlatformUsers() {
   };
 
   const counts = {
-    total:     users.length,
-    active:    users.filter((u) => getStatus(u) === 'active').length,
-    suspended: users.filter((u) => getStatus(u) === 'suspended').length,
-    pending:   users.filter((u) => getStatus(u) === 'pending').length,
+    total:    users.length,
+    active:   users.filter((u) => getStatus(u) === 'active').length,
+    inactive: users.filter((u) => ['inactive','suspended'].includes(getStatus(u))).length,
   };
 
   const roleCounts = Object.fromEntries(
@@ -125,10 +129,10 @@ export default function PlatformUsers() {
       {/* Header */}
       <div>
         <p className="text-xs font-bold tracking-widest text-blue-600 uppercase mb-1">
-          Platform Admin
+          {t('platformAdmin')}
         </p>
-        <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('users')}</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           Platform-wide visibility of all staff accounts across every clinic tenant.
         </p>
       </div>
@@ -144,12 +148,11 @@ export default function PlatformUsers() {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {[
-          { label: 'Total Users', value: counts.total,     bg: 'bg-blue-50',   color: 'text-blue-600' },
-          { label: 'Active',      value: counts.active,    bg: 'bg-green-50',  color: 'text-green-600' },
-          { label: 'Suspended',   value: counts.suspended, bg: 'bg-red-50',    color: 'text-red-600' },
-          { label: 'Pending',     value: counts.pending,   bg: 'bg-amber-50',  color: 'text-amber-600' },
+          { label: 'Total Users', value: counts.total,    bg: 'bg-blue-50',  color: 'text-blue-600' },
+          { label: 'Active',      value: counts.active,   bg: 'bg-green-50', color: 'text-green-600' },
+          { label: 'Inactive',    value: counts.inactive, bg: 'bg-red-50',   color: 'text-red-600' },
         ].map((k) => (
           <div key={k.label} className={`${k.bg} rounded-2xl p-4`}>
             <p className="text-xs text-gray-500 mb-1">{k.label}</p>
@@ -185,7 +188,7 @@ export default function PlatformUsers() {
           onChange={(e) => setStatusFilter(e.target.value)}
           className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 bg-white outline-none cursor-pointer"
         >
-          {['All', 'active', 'suspended', 'pending'].map((s) => (
+          {['All', 'active', 'inactive'].map((s) => (
             <option key={s} value={s}>
               {s === 'All' ? 'All statuses' : s.charAt(0).toUpperCase() + s.slice(1)}
             </option>
@@ -197,17 +200,17 @@ export default function PlatformUsers() {
       <div className="flex gap-4">
 
         {/* Table */}
-        <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex-1 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
             <div>
-              <h2 className="text-sm font-semibold text-gray-900">All Users</h2>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">All Users</h2>
               <p className="text-xs text-gray-400 mt-0.5">{filtered.length} records</p>
             </div>
           </div>
 
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
+              <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
                 {['USER', 'ROLE', 'CLINIC', 'CITY', 'JOINED', 'STATUS'].map((h) => (
                   <th
                     key={h}

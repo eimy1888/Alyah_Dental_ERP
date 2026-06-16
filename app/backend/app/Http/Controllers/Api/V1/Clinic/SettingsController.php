@@ -104,6 +104,13 @@ class SettingsController extends Controller
             $clinic->update(['settings' => array_merge($settings, $settingsFields)]);
         }
 
+        \App\Models\AuditLog::record('settings.clinic_updated', [
+            'subject_type'  => 'Clinic',
+            'subject_id'    => $clinic->id,
+            'subject_label' => $clinic->name,
+            'new_values'    => $validated,
+        ], request());
+
         return response()->json([
             'success' => true,
             'message' => 'Clinic profile updated.',
@@ -383,6 +390,13 @@ class SettingsController extends Controller
         
         $service->load('inventoryItems');
 
+        \App\Models\AuditLog::record('service.created', [
+            'subject_type'  => 'Service',
+            'subject_id'    => $service->id,
+            'subject_label' => $service->name,
+            'new_values'    => ['price' => $service->price, 'category' => $service->category],
+        ], request());
+
         return response()->json([
             'success' => true,
             'message' => 'Service created successfully.',
@@ -507,7 +521,14 @@ class SettingsController extends Controller
         
         $service = \App\Models\Service::where('clinic_id', $clinic->id)->findOrFail($id);
         $service->delete();
-        
+
+        \App\Models\AuditLog::record('service.deleted', [
+            'subject_type'  => 'Service',
+            'subject_id'    => $service->id,
+            'subject_label' => $service->name,
+            'old_values'    => ['price' => $service->price],
+        ], request());
+
         return response()->json([
             'success' => true,
             'message' => 'Service deleted successfully.',

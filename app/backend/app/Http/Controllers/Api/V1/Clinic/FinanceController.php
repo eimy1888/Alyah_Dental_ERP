@@ -266,6 +266,13 @@ class FinanceController extends Controller
             'status'      => 'approved',
         ]);
 
+        \App\Models\AuditLog::record('expense.created', [
+            'subject_type'  => 'Expense',
+            'subject_id'    => $expense->id,
+            'subject_label' => $validated['description'],
+            'new_values'    => ['amount' => $validated['amount'], 'category' => $validated['category']],
+        ], request());
+
         return response()->json([
             'success' => true,
             'message' => 'Expense recorded successfully.',
@@ -280,6 +287,14 @@ class FinanceController extends Controller
     public function deleteExpense(Expense $expense): JsonResponse
     {
         abort_if($expense->clinic_id !== $this->clinicId(), 403);
+
+        \App\Models\AuditLog::record('expense.deleted', [
+            'subject_type'  => 'Expense',
+            'subject_id'    => $expense->id,
+            'subject_label' => $expense->description,
+            'old_values'    => ['amount' => $expense->amount, 'category' => $expense->category],
+        ], request());
+
         $expense->delete();
 
         return response()->json([
