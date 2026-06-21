@@ -1,6 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Building2, Mail, Phone, MapPin, Globe } from 'lucide-react';
 
 const schema = z.object({
   clinicName:  z.string().min(2,  'Clinic name is required'),
@@ -11,6 +12,24 @@ const schema = z.object({
   city:        z.string().min(1,  'City is required'),
   address:     z.string().min(5,  'Address is required'),
 });
+
+function Field({ label, icon: Icon, error, children }) {
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-[11px] font-black text-gray-400 uppercase tracking-[0.12em] mb-1.5">
+        {Icon && <Icon className="w-3 h-3" />}
+        {label}
+      </label>
+      {children}
+      {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+const inputCls = (err) =>
+  `w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500/10 ${
+    err ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50/60 focus:border-blue-400 focus:bg-white'
+  }`;
 
 export default function StepClinicInfo({ data, update, onNext }) {
   const { register, handleSubmit, formState: { errors } } = useForm({
@@ -26,121 +45,58 @@ export default function StepClinicInfo({ data, update, onNext }) {
     },
   });
 
-  const onSubmit = (values) => {
-    update(values);
-    onNext();
-  };
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+    <form onSubmit={handleSubmit(vals => { update(vals); onNext(); })} className="space-y-5">
 
-      {/* Clinic name + email */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Clinic name</label>
-          <input
-            {...register('clinicName')}
-            placeholder="Alyah Dental Clinic"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.clinicName ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.clinicName && <p className="mt-1 text-xs text-red-500">{errors.clinicName.message}</p>}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Clinic email</label>
-          <input
-            {...register('clinicEmail')}
-            placeholder="info@myclinic.com"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.clinicEmail ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.clinicEmail && <p className="mt-1 text-xs text-red-500">{errors.clinicEmail.message}</p>}
-        </div>
-      </div>
-
-      {/* Branch name + phone */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Main branch name</label>
-          <input
-            {...register('branchName')}
-            placeholder="Bole Flagship"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.branchName ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.branchName && <p className="mt-1 text-xs text-red-500">{errors.branchName.message}</p>}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone</label>
-          <input
-            {...register('phone')}
-            placeholder="+251 911 000 000"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.phone ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone.message}</p>}
-        </div>
-      </div>
-
-      {/* Country + city */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Country</label>
-          <input
-            {...register('country')}
-            placeholder="Ethiopia"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.country ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.country && <p className="mt-1 text-xs text-red-500">{errors.country.message}</p>}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
-          <input
-            {...register('city')}
-            placeholder="Addis Ababa"
-            className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors ${
-              errors.city ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-            }`}
-          />
-          {errors.city && <p className="mt-1 text-xs text-red-500">{errors.city.message}</p>}
-        </div>
-      </div>
-
-      {/* Address */}
+      {/* Section: Clinic */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Address</label>
-        <textarea
-          {...register('address')}
-          placeholder="Bole Road, Building 45..."
-          rows={3}
-          className={`w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors resize-none ${
-            errors.address ? 'border-red-300 bg-red-50' : 'border-gray-200 focus:border-blue-400'
-          }`}
-        />
-        {errors.address && <p className="mt-1 text-xs text-red-500">{errors.address.message}</p>}
+        <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.15em] mb-3 flex items-center gap-1.5">
+          <Building2 className="w-3 h-3" /> Clinic Details
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Clinic Name" icon={Building2} error={errors.clinicName?.message}>
+            <input {...register('clinicName')} placeholder="Alyah Dental Clinic" className={inputCls(errors.clinicName)} />
+          </Field>
+          <Field label="Clinic Email" icon={Mail} error={errors.clinicEmail?.message}>
+            <input {...register('clinicEmail')} type="email" placeholder="info@myclinic.com" className={inputCls(errors.clinicEmail)} />
+          </Field>
+        </div>
       </div>
 
-      <div className="flex justify-between pt-2">
-        <button
-          type="button"
-          disabled
-          className="px-6 py-3 rounded-xl text-sm text-gray-300 cursor-not-allowed"
-        >
-          Back
-        </button>
-        <button
-          type="submit"
-          className="px-8 py-3 rounded-xl bg-[#1F4E79] text-white font-semibold text-sm hover:bg-blue-900 transition-all duration-200"
-        >
+      {/* Section: Branch + Phone */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Main Branch Name" icon={Building2} error={errors.branchName?.message}>
+          <input {...register('branchName')} placeholder="Bole Flagship" className={inputCls(errors.branchName)} />
+        </Field>
+        <Field label="Phone Number" icon={Phone} error={errors.phone?.message}>
+          <input {...register('phone')} placeholder="+251 911 000 000" className={inputCls(errors.phone)} />
+        </Field>
+      </div>
+
+      {/* Section: Location */}
+      <div>
+        <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.15em] mb-3 flex items-center gap-1.5">
+          <MapPin className="w-3 h-3" /> Location
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <Field label="Country" icon={Globe} error={errors.country?.message}>
+            <input {...register('country')} placeholder="Ethiopia" className={inputCls(errors.country)} />
+          </Field>
+          <Field label="City" icon={MapPin} error={errors.city?.message}>
+            <input {...register('city')} placeholder="Addis Ababa" className={inputCls(errors.city)} />
+          </Field>
+        </div>
+        <Field label="Street Address" icon={MapPin} error={errors.address?.message}>
+          <textarea {...register('address')} placeholder="Bole Road, Building 45, Near Edna Mall..." rows={3}
+            className={`${inputCls(errors.address)} resize-none`} />
+        </Field>
+      </div>
+
+      {/* Footer */}
+      <div className="flex justify-end pt-2">
+        <button type="submit"
+          className="px-8 py-3 rounded-xl text-white font-bold text-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0"
+          style={{ background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', boxShadow: '0 4px 16px rgba(37,99,235,0.25)' }}>
           Continue →
         </button>
       </div>
