@@ -21,6 +21,7 @@ class BillingController extends Controller
 
         $query = Invoice::forClinic($clinicId)
             ->forBranch($branchId)
+            ->whereNotIn('lifecycle_status', [Invoice::STATUS_DRAFT])
             ->with('patient');
 
         if ($request->filled('status') && $request->status !== 'all') {
@@ -94,7 +95,7 @@ class BillingController extends Controller
             'patient_id'       => $validated['patient_id'],
             'invoice_number'   => $invoiceNumber,
             'invoice_type'     => Invoice::TYPE_SERVICE,
-            'lifecycle_status' => Invoice::STATUS_ESTIMATED,
+            'lifecycle_status' => Invoice::STATUS_UNPAID,
             'issued_at'        => Carbon::now(),
             'due_date'         => $validated['due_date'] ?? Carbon::now()->addDays(15),
             'total'            => $total,

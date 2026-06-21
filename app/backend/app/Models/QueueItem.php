@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\QueryException;
 
 class QueueItem extends Model
 {
@@ -24,6 +25,7 @@ class QueueItem extends Model
         'called_at',
         'started_at',
         'completed_at',
+        'active_queue_key',
     ];
 
     protected $casts = [
@@ -45,6 +47,15 @@ class QueueItem extends Model
     const STATUS_COMPLETED    = 'completed';
     const STATUS_REMOVED      = 'removed';
 
+    protected static function booted(): void
+    {
+        static::saving(function (QueueItem $item) {
+            $item->active_queue_key = $item->isActiveQueueItem() && $item->appointment_id
+                ? (string) $item->appointment_id
+                : null;
+        });
+    }
+
     // ── Priority order (lower number = higher priority) ────
     public static function priorityOrder(string $priority): int
     {
@@ -55,6 +66,73 @@ class QueueItem extends Model
             self::PRIORITY_LATE_ARRIVAL => 4,
             default                     => 99,
         };
+    }
+
+    public static function activeStatuses(): array
+    {
+        return [self::STATUS_WAITING, self::STATUS_IN_PROGRESS];
+    }
+
+    public function isActiveQueueItem(): bool
+    {
+        return in_array($this->status, self::activeStatuses(), true);
+    }
+
+    public static function enqueueAppointment(Appointment $appointment, string $priority, ?string $notes = null): self
+    {
+        $existing = static::activeForAppointment($appointment->id)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $position = ((int) static::where('clinic_id', $appointment->clinic_id)
+            ->where('branch_id', $appointment->branch_id)
+            ->where('dentist_id', $appointment->dentist_id)
+            ->where('status', self::STATUS_WAITING)
+            ->max('position')) + 1;
+
+        try {
+            $queueItem = static::create([
+                'clinic_id' => $appointment->clinic_id,
+                'branch_id' => $appointment->branch_id,
+                'appointment_id' => $appointment->id,
+                'patient_id' => $appointment->patient_id,
+                'dentist_id' => $appointment->dentist_id,
+                'priority' => $priority,
+                'position' => $position,
+                'status' => self::STATUS_WAITING,
+                'notes' => $notes,
+            ]);
+        } catch (QueryException $e) {
+            $queueItem = static::activeForAppointment($appointment->id)->first();
+            if (!$queueItem) {
+                throw $e;
+            }
+        }
+
+        static::recalculatePositions($appointment->clinic_id, $appointment->branch_id, $appointment->dentist_id);
+
+        return $queueItem->fresh() ?? $queueItem;
+    }
+
+    public static function recalculatePositions(int $clinicId, ?int $branchId = null, ?int $dentistId = null): void
+    {
+        $query = static::forClinic($clinicId)
+            ->forBranch($branchId)
+            ->where('status', self::STATUS_WAITING);
+
+        if ($dentistId !== null) {
+            $query->forDentist($dentistId);
+        }
+
+        $position = 1;
+        foreach ($query->ordered()->get() as $item) {
+            if ((int) $item->position !== $position) {
+                $item->position = $position;
+                $item->saveQuietly();
+            }
+            $position++;
+        }
     }
 
     // ── Relationships ──────────────────────────────────────
@@ -107,6 +185,12 @@ class QueueItem extends Model
     public function scopeForDentist($query, int $dentistId)
     {
         return $query->where('dentist_id', $dentistId);
+    }
+
+    public function scopeActiveForAppointment($query, int $appointmentId)
+    {
+        return $query->where('appointment_id', $appointmentId)
+            ->whereIn('status', self::activeStatuses());
     }
 
     public function scopeOrdered($query)

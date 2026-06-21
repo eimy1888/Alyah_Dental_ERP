@@ -482,13 +482,6 @@ export default function MyAppointments() {
         return null;
     }
   };
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
 
   const statusCounts = {
     pending:     todayMeta.pending     ?? 0,

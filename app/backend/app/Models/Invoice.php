@@ -20,13 +20,25 @@ class Invoice extends Model
     const TYPE_DIAGNOSTIC  = 'diagnostic';
     const TYPE_HYBRID      = 'hybrid';
 
-    // ── Simplified lifecycle status constants (REQ-1) ─────────────────────────
-    const STATUS_UNPAID    = 'unpaid';   // balance not received — treatment BLOCKED
-    const STATUS_PAID      = 'paid';     // full balance received — treatment ACTIVE
-    const STATUS_LOCKED    = 'locked';   // post-payment immutable audit record
+    // ── Lifecycle status constants ────────────────────────────────────────────
+    //
+    //   DRAFT   → invoice created at booking; HIDDEN from accountant.
+    //             Dentist is still working (checkup in progress).
+    //             Extra procedures can be added here.
+    //
+    //   UNPAID  → dentist clicked "Checkup Complete".
+    //             Invoice is now VISIBLE to accountant. Patient must pay.
+    //
+    //   PAID    → accountant recorded full payment. Treatment is ACTIVE.
+    //
+    //   LOCKED  → 24h after PAID. Immutable audit record.
+    //
+    const STATUS_DRAFT     = 'draft';
+    const STATUS_UNPAID    = 'unpaid';
+    const STATUS_PAID      = 'paid';
+    const STATUS_LOCKED    = 'locked';
 
-    // ── Legacy constants kept for read-only backward compat only ─────────────
-    const STATUS_DRAFT         = 'draft';
+    // ── Legacy read-only compat ───────────────────────────────────────────────
     const STATUS_ESTIMATED     = 'estimated';
     const STATUS_IN_PROGRESS   = 'in_progress';
     const STATUS_UPDATED       = 'updated';
@@ -176,13 +188,13 @@ class Invoice extends Model
 
     public function isEditable(): bool
     {
+        // DRAFT and UNPAID are editable. PAID, LOCKED, CANCELLED are not.
         return !in_array($this->lifecycle_status ?? $this->status, self::IMMUTABLE_STATUSES);
     }
 
     public function isCardInvoice(): bool
     {
-        if ($this->invoice_type === self::TYPE_CARD) return true;
-        return $this->items()->where('description', 'like', '%Clinic Card%')->exists();
+        return $this->invoice_type === self::TYPE_CARD;
     }
 
     // ── Core Financial Calculation ────────────────────────────────────────────
@@ -213,7 +225,20 @@ class Invoice extends Model
             return;
         }
 
-        // Determine new lifecycle status
+        // DRAFT invoices: only update totals, keep status as draft (hidden from accountant)
+        if ($currentStatus === self::STATUS_DRAFT) {
+            $this->update([
+                'total'           => $total,
+                'tax_amount'      => $taxAmount,
+                'estimated_total' => $total,
+                'paid'            => $paid,
+                'balance'         => $balance,
+                // lifecycle_status stays 'draft' — NOT promoted to unpaid here
+            ]);
+            return;
+        }
+
+        // Determine new lifecycle status for non-draft invoices
         $newStatus = self::STATUS_UNPAID;
         if ($balance <= 0 && $paid > 0) {
             $newStatus = self::STATUS_PAID;
@@ -249,6 +274,15 @@ class Invoice extends Model
             return ['success' => false, 'message' => 'Invoice is already paid.'];
         }
 
+        // Cannot pay a DRAFT invoice — dentist must complete checkup first
+        if ($this->lifecycle_status === self::STATUS_DRAFT) {
+            return [
+                'success' => false,
+                'message' => 'Invoice is still in draft. The dentist must complete the checkup before payment can be collected.',
+                'code'    => 'INVOICE_DRAFT',
+            ];
+        }
+
         $balance = (float) $this->balance;
 
         // REQ-3: No partial payments — amount must equal balance
@@ -269,36 +303,39 @@ class Invoice extends Model
             ];
         }
 
-        \App\Models\Payment::create([
-            'clinic_id'    => $this->clinic_id,
-            'branch_id'    => $this->branch_id,
-            'patient_id'   => $this->patient_id,
-            'invoice_id'   => $this->id,
-            'amount'       => $amount,
-            'method'       => $method,
-            'reference'    => $reference,
-            'status'       => 'completed',
-            'paid_at'      => now(),
-            'recorded_by'  => $recordedBy->id,
-        ]);
+        \Illuminate\Support\Facades\DB::transaction(function () use ($amount, $method, $reference, $recordedBy) {
+            \App\Models\Payment::create([
+                'clinic_id'    => $this->clinic_id,
+                'branch_id'    => $this->branch_id,
+                'patient_id'   => $this->patient_id,
+                'invoice_id'   => $this->id,
+                'amount'       => $amount,
+                'method'       => $method,
+                'reference'    => $reference,
+                'status'       => 'completed',
+                'paid_at'      => now(),
+                'collected_by' => $recordedBy->id,
+            ]);
 
-        $this->update([
-            'paid'             => $amount,
-            'balance'          => 0,
-            'status'           => 'paid',
-            'lifecycle_status' => self::STATUS_PAID,
-            'locked_at'        => now()->addHours(24), // auto-lock scheduled
-            'locked_by'        => $recordedBy->id,
-            'finalized_at'     => now(),
-            'finalized_by'     => $recordedBy->id,
-        ]);
+            $this->update([
+                'paid'             => $amount,
+                'balance'          => 0,
+                'status'           => 'paid',
+                'lifecycle_status' => self::STATUS_PAID,
+                'locked_at'        => now()->addHours(24),
+                'locked_by'        => $recordedBy->id,
+                'finalized_at'     => now(),
+                'finalized_by'     => $recordedBy->id,
+            ]);
+        });
 
+        $this->refresh();
         $this->activateCardIfApplicable();
         $this->triggerPostPaymentAutomations();
 
         \App\Models\BillingEvent::log(
             $this,
-            \App\Models\BillingEvent::EVENT_INVOICE_CREATED,
+            \App\Models\BillingEvent::EVENT_PAYMENT_RECORDED,
             $amount,
             $amount,
             ['method' => $method, 'reference' => $reference],
@@ -461,12 +498,62 @@ class Invoice extends Model
         }
     }
 
+    /**
+     * Called when dentist clicks "Checkup Complete".
+     * Promotes invoice from DRAFT → UNPAID so accountant can see it.
+     * Recalculates totals from all current items first.
+     */
+    public function releaseToAccountant(): void
+    {
+        // Atomic check-and-set using a locking read to prevent double-release
+        // under concurrent requests (e.g. dentist double-clicks checkup complete).
+        \Illuminate\Support\Facades\DB::transaction(function () {
+            // Re-read with a write lock so concurrent calls queue behind this one
+            $fresh = self::where('id', $this->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$fresh || $fresh->lifecycle_status !== self::STATUS_DRAFT) {
+                return; // already released or paid — idempotent exit
+            }
+
+            // Recompute totals from all items accumulated during checkup
+            $subtotal  = $fresh->items()->sum(\DB::raw('quantity * unit_price'));
+            $taxRate   = (float) ($fresh->tax_rate ?? 15);
+            $taxAmount = round($subtotal * ($taxRate / 100), 2);
+            $total     = max(0, $subtotal + $taxAmount);
+
+            $fresh->update([
+                'total'            => $total,
+                'estimated_total'  => $total,
+                'tax_amount'       => $taxAmount,
+                'balance'          => $total,
+                'lifecycle_status' => self::STATUS_UNPAID,
+                'status'           => 'sent',
+                'issued_at'        => now(),
+                'due_date'         => now()->addDays(7),
+            ]);
+        });
+
+        // Sync in-memory model to DB state after transaction
+        $this->refresh();
+    }
+
     // ── Legacy transitions (kept for backward compat — not used in new flow) ──
 
     public function submitForReview(\App\Models\User $by, string $notes = ''): void
     {
-        // No-op in new model — invoice goes directly UNPAID → PAID
-        // Kept to avoid breaking any old code paths
+        if (!in_array($this->lifecycle_status, [self::STATUS_DRAFT, self::STATUS_ESTIMATED], true)) {
+            return;
+        }
+
+        $this->releaseToAccountant();
+
+        $this->update([
+            'submitted_for_review_at' => now(),
+            'finalized_by' => $by->id,
+            'review_notes' => $notes ?: $this->review_notes,
+        ]);
     }
 
     public function sendBackForRevision(\App\Models\User $by, string $reason): void
@@ -519,7 +606,7 @@ class Invoice extends Model
             'created_by'       => $createdBy->id,
             'invoice_number'   => self::generateNumber($clinicId),
             'invoice_type'     => self::TYPE_SERVICE,
-            'lifecycle_status' => self::STATUS_UNPAID,
+            'lifecycle_status' => self::STATUS_DRAFT,   // hidden from accountant until checkup complete
             'total'            => $total,
             'estimated_total'  => $total,
             'tax_rate'         => $taxRate,
@@ -527,7 +614,7 @@ class Invoice extends Model
             'paid'             => 0,
             'pre_paid'         => 0,
             'balance'          => $total,
-            'status'           => 'sent',
+            'status'           => 'draft',
             'issued_at'        => now(),
             'due_date'         => now()->addDays(15),
             'notes'            => "Service invoice: {$service->name}",
@@ -580,7 +667,7 @@ class Invoice extends Model
             'created_by'           => $createdBy->id,
             'invoice_number'       => self::generateNumber($clinicId),
             'invoice_type'         => self::TYPE_TREATMENT,
-            'lifecycle_status'     => self::STATUS_UNPAID,  // REQ-1: always starts UNPAID
+            'lifecycle_status'     => self::STATUS_DRAFT,  // hidden until checkup complete
             'total'                => 0,
             'estimated_total'      => 0,
             'tax_rate'             => $taxRate,
@@ -588,7 +675,7 @@ class Invoice extends Model
             'paid'                 => 0,
             'pre_paid'             => 0,
             'balance'              => 0,
-            'status'               => 'sent',
+            'status'               => 'draft',
             'issued_at'            => now(),
             'due_date'             => now()->addDays(7),
             'notes'                => 'Treatment invoice — full payment required before treatment.',

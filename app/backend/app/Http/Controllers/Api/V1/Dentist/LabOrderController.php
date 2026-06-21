@@ -51,6 +51,8 @@ class LabOrderController extends Controller
             'fitting_specialist_id'=> 'nullable|exists:users,id',
             'treatment_plan_id'    => 'nullable|exists:treatment_plans,id',
             'notes'                => 'nullable|string',
+            'attachments'           => 'nullable|array',
+            'attachments.*'         => 'file|max:10240',
         ]);
 
         // Ensure the appointment belongs to this dentist's clinic
@@ -58,6 +60,15 @@ class LabOrderController extends Controller
             ->findOrFail($validated['appointment_id']);
 
         $labOrderNumber = LabOrder::generateNumber($dentist->clinic_id);
+
+        $attachments = [];
+        foreach ($request->file('attachments', []) as $file) {
+            $attachments[] = [
+                'name' => $file->getClientOriginalName(),
+                'path' => $file->store("lab-orders/clinic-{$dentist->clinic_id}", 'public'),
+                'size' => $file->getSize(),
+            ];
+        }
 
         $order = LabOrder::create([
             'clinic_id'             => $dentist->clinic_id,
@@ -72,12 +83,16 @@ class LabOrderController extends Controller
             'material'              => $validated['material'] ?? null,
             'tooth_numbers'         => $validated['tooth_numbers'] ?? null,
             'instructions'          => $validated['instructions'] ?? null,
+            'attachments'           => $attachments,
             'status'                => LabOrder::STATUS_PENDING,
             'expected_ready_date'   => $validated['expected_ready_date'] ?? null,
             'notes'                 => $validated['notes'] ?? null,
         ]);
 
         $order->load(['patient', 'appointment', 'fittingSpecialist']);
+
+        // Notify lab technicians in this branch
+        \App\Services\NotificationService::labOrderCreated($order);
 
         return response()->json([
             'success' => true,
@@ -130,6 +145,63 @@ class LabOrderController extends Controller
         ]);
     }
 
+    public function updateStatus(Request $request, int $id): JsonResponse
+    {
+        $dentist = $request->user();
+        $validated = $request->validate([
+            'status' => 'required|in:created,accepted,in_progress,completed,delivered,pending,sent_to_lab,ready',
+            'lab_notes' => 'nullable|string|max:4000',
+        ]);
+
+        $order = LabOrder::forClinic($dentist->clinic_id)
+            ->where('ordering_dentist_id', $dentist->id)
+            ->with(['patient', 'appointment', 'fittingSpecialist'])
+            ->findOrFail($id);
+
+        $status = match ($validated['status']) {
+            'created' => LabOrder::STATUS_PENDING,
+            'accepted' => LabOrder::STATUS_SENT_TO_LAB,
+            'completed' => LabOrder::STATUS_READY,
+            default => $validated['status'],
+        };
+
+        $data = ['status' => $status];
+        if (array_key_exists('lab_notes', $validated)) {
+            $data['lab_notes'] = $validated['lab_notes'];
+        }
+        if ($status === LabOrder::STATUS_READY) {
+            $data['actual_ready_date'] = now()->toDateString();
+        }
+        if ($status === LabOrder::STATUS_DELIVERED) {
+            $data['delivered_at'] = now();
+        }
+
+        $order->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Lab order status updated.',
+            'data' => $this->formatOrder($order->fresh(['patient', 'appointment', 'fittingSpecialist']), true),
+        ]);
+    }
+
+    public function acknowledge(Request $request, int $id): JsonResponse
+    {
+        $dentist = $request->user();
+        $order = LabOrder::forClinic($dentist->clinic_id)
+            ->where('ordering_dentist_id', $dentist->id)
+            ->with(['patient', 'appointment', 'fittingSpecialist'])
+            ->findOrFail($id);
+
+        $order->acknowledgeByDentist();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Lab order acknowledged.',
+            'data' => $this->formatOrder($order->fresh(['patient', 'appointment', 'fittingSpecialist']), true),
+        ]);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helper
     // ─────────────────────────────────────────────────────────────────────────
@@ -146,6 +218,10 @@ class LabOrderController extends Controller
             'status'               => $o->status,
             'expected_ready_date'  => $o->expected_ready_date?->toDateString(),
             'actual_ready_date'    => $o->actual_ready_date?->toDateString(),
+            'attachments'          => $o->attachments ?? [],
+            'lab_notes'            => $o->lab_notes,
+            'delivered_at'         => $o->delivered_at?->toDateTimeString(),
+            'dentist_acknowledged_at' => $o->dentist_acknowledged_at?->toDateTimeString(),
             'notes'                => $o->notes,
             'patient_name'         => $o->patient?->full_name ?? '—',
             'patient_id'           => $o->patient_id,

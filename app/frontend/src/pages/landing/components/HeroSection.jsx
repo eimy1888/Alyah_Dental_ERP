@@ -61,7 +61,7 @@ export default function HeroSection() {
       id="hero"
       ref={sectionRef}
       className="relative bg-[#060e20]"
-      style={{ minHeight: '100vh', paddingTop: 60 }}
+      style={{ minHeight: '100vh', paddingTop: 52 }}
     >
       {/* ── Full-bleed background image — vivid, not dark ── */}
       <motion.div
@@ -109,9 +109,9 @@ export default function HeroSection() {
       {/* Content */}
       <div
         className="relative z-10 mx-auto max-w-7xl px-5 lg:px-8 flex items-center"
-        style={{ minHeight: 'calc(100vh - 60px)' }}
+        style={{ minHeight: 'calc(100vh - 52px)' }}
       >
-        <div className="grid lg:grid-cols-[1fr_0.95fr] gap-12 lg:gap-16 items-center w-full py-16 lg:py-20">
+        <div className="grid lg:grid-cols-[1fr_0.95fr] gap-12 lg:gap-16 items-center w-full py-10 lg:py-14">
 
           {/* ── Left copy ── */}
           <motion.div

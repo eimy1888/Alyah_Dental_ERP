@@ -375,6 +375,9 @@ class PlanController extends Controller
             'status'           => 'active',
         ]);
 
+        // Notify clinic admin that subscription is renewed
+        \App\Services\NotificationService::subscriptionRenewed($subscription->fresh());
+
         \Illuminate\Support\Facades\Log::info('[DentFlow] Plan payment recorded', [
             'clinic_id'      => $clinic->id,
             'subscription_id'=> $subscription->id,

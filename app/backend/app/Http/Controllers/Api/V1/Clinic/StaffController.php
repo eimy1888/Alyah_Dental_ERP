@@ -116,6 +116,19 @@ class StaffController extends Controller
             }
         }
 
+        // ── Enforce plan user limit ───────────────────────────────────────────
+        $clinic        = \App\Models\Clinic::with('plan')->find($this->clinicId());
+        $currentUsers  = \App\Models\User::where('clinic_id', $this->clinicId())->count();
+        $maxUsers      = $clinic?->plan?->max_users ?? PHP_INT_MAX;
+
+        if ($currentUsers >= $maxUsers) {
+            return response()->json([
+                'success' => false,
+                'message' => "Your plan allows a maximum of {$maxUsers} users. Please upgrade to add more staff.",
+                'code'    => 'PLAN_LIMIT_USERS',
+            ], 422);
+        }
+
         $photoPath    = $this->handlePhotoUpload($request);
         $tempPassword = Str::random(10);
         $userRole     = $this->mapRole($validated['role']);

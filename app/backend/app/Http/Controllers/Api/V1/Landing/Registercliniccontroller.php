@@ -32,11 +32,11 @@ class RegisterClinicController extends Controller
                 'message' => 'Clinic registered successfully. Please complete payment to proceed.',
                 'data'    => [
                     'clinic' => [
-                        'id'       => $result['clinic']->id,
-                        'name'     => $result['clinic']->name,
-                        'email'    => $result['clinic']->email,
-                        'status'   => $result['clinic']->status,
-                        'subdomain'=> $result['clinic']->subdomain,
+                        'id'        => $result['clinic']->id,
+                        'name'      => $result['clinic']->name,
+                        'email'     => $result['clinic']->email,
+                        'status'    => $result['clinic']->status,
+                        'subdomain' => $result['clinic']->subdomain,
                     ],
                     'admin' => [
                         'id'    => $result['user']->id,
@@ -46,10 +46,15 @@ class RegisterClinicController extends Controller
                     'subscription' => [
                         'id'             => $result['subscription']->id,
                         'plan'           => $result['plan']->name,
+                        'plan_type'      => $result['plan']->type,
                         'billing_cycle'  => $result['subscription']->billing_cycle,
                         'amount_due'     => $result['amount'],
                         'payment_method' => $result['subscription']->payment_method,
                         'status'         => $result['subscription']->status,
+                        'is_free'        => $result['plan']->isFree(),
+                        'trial_ends_at'  => $result['plan']->isFree()
+                            ? $result['subscription']->ends_at?->format('d M Y')
+                            : null,
                     ],
                 ],
             ], 201);

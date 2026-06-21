@@ -5,15 +5,13 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Jobs\CheckNoShowAppointments;
 use App\Jobs\CheckEmergencyWaitingTime;
+use App\Services\NotificationService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// ── Auto No-Show Detection ──────────────────────────────────────────
-// Runs every 5 minutes. Finds confirmed appointments that passed
-// 30+ minutes ago with no check-in, marks them as no_show,
-// and increments the patient's no_show_count.
+// ── 1. No-Show Detection (every 5 minutes) ────────────────────────────────────
 Schedule::call(function () {
     $cutoff = now()->subMinutes(30);
 
@@ -24,115 +22,71 @@ Schedule::call(function () {
         ->get();
 
     foreach ($appointments as $appointment) {
-        // Mark appointment as no_show
         $appointment->update(['status' => 'no_show']);
 
-        // Increment patient's no_show_count
         if ($appointment->patient) {
-            $patient = $appointment->patient;
+            $patient  = $appointment->patient;
             $newCount = $patient->no_show_count + 1;
-
             $patient->update([
                 'no_show_count'    => $newCount,
-                'requires_deposit' => $newCount >= 3, // Threshold: 3 no-shows
+                'requires_deposit' => $newCount >= 3,
+                'last_no_show_at'  => now(),
             ]);
 
-            // Log the no-show
-            \Illuminate\Support\Facades\Log::info("No-show auto-detected", [
+            \Illuminate\Support\Facades\Log::info('No-show auto-detected', [
                 'appointment_id' => $appointment->id,
                 'patient_id'     => $patient->id,
                 'patient_name'   => $patient->full_name,
                 'no_show_count'  => $newCount,
-                'requires_deposit' => $newCount >= 3,
             ]);
         }
     }
 })->everyFiveMinutes()->name('appointments:detect-no-shows');
 
-// ── Recall Notification Sender ───────────────────────────────────────
-// Runs daily. Finds recalls due in exactly 7 days that haven't been
-// notified yet, and marks them as notified.
-Schedule::call(function () {
-    $recalls = \App\Models\Recall::where('status', 'pending')
-        ->where('notification_sent', false)
-        ->whereDate('due_date', '=', now()->addDays(7)->toDateString())
-        ->with(['patient', 'dentist'])
-        ->get();
-
-    foreach ($recalls as $recall) {
-        $recall->update([
-            'notification_sent'    => true,
-            'notification_sent_at' => now(),
-            'status'               => 'notified',
-        ]);
-
-        \Illuminate\Support\Facades\Log::info('Recall notification triggered', [
-            'recall_id'      => $recall->id,
-            'patient_id'     => $recall->patient_id,
-            'patient_name'   => $recall->patient?->full_name,
-            'due_date'       => $recall->due_date->toDateString(),
-            'dentist_name'   => $recall->dentist?->name,
-        ]);
-    }
-})->dailyAt('08:00')->timezone('Africa/Addis_Ababa')->name('recalls:send-notifications');
-
-
-// Check for no-show appointments every minute
+// ── 2. No-Show Job (every minute, dedicated job) ──────────────────────────────
 Schedule::job(new CheckNoShowAppointments)->everyMinute();
 
-// Check for emergencies waiting longer than threshold every minute
+// ── 3. Emergency Waiting Time Alert (every minute) ───────────────────────────
 Schedule::job(new CheckEmergencyWaitingTime)->everyMinute();
 
-// Auto-mark dentists as available when unavailable_until has passed (runs hourly)
+// ── 4. Auto-restore dentist availability (hourly) ─────────────────────────────
 Schedule::call(function () {
     \App\Models\Staff::where('is_available', false)
         ->whereNotNull('unavailable_until')
         ->where('unavailable_until', '<=', now())
         ->update([
-            'is_available' => true,
+            'is_available'       => true,
             'unavailable_reason' => null,
-            'unavailable_until' => null,
+            'unavailable_until'  => null,
         ]);
-})->hourly();
+})->hourly()->name('staff:restore-availability');
 
-// ── Auto Subscription Expiry ──────────────────────────────────────────────────
-// Runs every hour. Finds active subscriptions whose ends_at has passed,
-// marks them expired, disables clinic + branch subdomain access,
-// deactivates all clinic users, and suspends the clinic.
+// ── 5. Subscription Expiry + Suspension (every hour) ─────────────────────────
 Schedule::call(function () {
+
+    // 5a. Expire active paid subscriptions
     $expiredSubs = \App\Models\Subscription::where('status', 'active')
         ->where('ends_at', '<=', now())
-        ->with('clinic.branches')
+        ->with('clinic.branches', 'plan')
         ->get();
 
     foreach ($expiredSubs as $subscription) {
         try {
-            // 1. Mark subscription as expired
             $subscription->update(['status' => 'expired']);
-
             $clinic = $subscription->clinic;
             if (!$clinic) continue;
 
-            // 2. Disable clinic subdomain + suspend clinic
-            $clinic->update([
-                'status'           => 'suspended',
-                'subdomain_active' => false,
-            ]);
-
-            // 3. Disable all branch subdomains
-            if ($clinic->branches) {
-                $clinic->branches()->update(['subdomain_active' => false]);
-            }
-
-            // 4. Deactivate all clinic users
+            $clinic->update(['status' => 'suspended', 'subdomain_active' => false]);
+            $clinic->branches()->update(['subdomain_active' => false]);
             $clinic->users()->update(['is_active' => false]);
+
+            // Notify clinic admin via DB + email
+            NotificationService::subscriptionExpired($subscription);
 
             \Illuminate\Support\Facades\Log::info('[DentFlow] Subscription auto-expired', [
                 'clinic_id'       => $clinic->id,
                 'clinic_name'     => $clinic->name,
                 'subscription_id' => $subscription->id,
-                'ended_at'        => $subscription->ends_at->toDateTimeString(),
-                'expired_at'      => now()->toDateTimeString(),
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('[DentFlow] Subscription expiry failed', [
@@ -141,4 +95,131 @@ Schedule::call(function () {
             ]);
         }
     }
+
+    // 5b. Expire free trials
+    $expiredTrials = \App\Models\Subscription::where('status', 'trialing')
+        ->where('billing_cycle', 'trial')
+        ->where('ends_at', '<=', now())
+        ->with('clinic.branches', 'plan')
+        ->get();
+
+    foreach ($expiredTrials as $subscription) {
+        try {
+            $subscription->update(['status' => 'expired']);
+            $clinic = $subscription->clinic;
+            if (!$clinic) continue;
+
+            $clinic->update(['status' => 'suspended', 'subdomain_active' => false]);
+            $clinic->branches()->update(['subdomain_active' => false]);
+            $clinic->users()->update(['is_active' => false]);
+
+            NotificationService::subscriptionExpired($subscription);
+
+            \Illuminate\Support\Facades\Log::info('[DentFlow] Free trial expired — clinic suspended', [
+                'clinic_id'   => $clinic->id,
+                'clinic_name' => $clinic->name,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[DentFlow] Trial expiry failed', [
+                'subscription_id' => $subscription->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+    }
+
 })->hourly()->name('subscriptions:expire');
+
+// ── 6. Subscription Expiry Warnings (daily at 09:00 EAT) ─────────────────────
+// Sends warning at 7 days, 3 days, and 1 day before expiry.
+Schedule::call(function () {
+    $warningDays = [7, 3, 1];
+
+    foreach ($warningDays as $days) {
+        $targetDate = now()->addDays($days)->toDateString();
+
+        $subscriptions = \App\Models\Subscription::where('status', 'active')
+            ->whereDate('ends_at', $targetDate)
+            ->with(['clinic', 'plan'])
+            ->get();
+
+        foreach ($subscriptions as $subscription) {
+            try {
+                NotificationService::subscriptionExpiring($subscription, $days);
+
+                \Illuminate\Support\Facades\Log::info("[DentFlow] Subscription expiry warning sent ({$days}d)", [
+                    'clinic_id'       => $subscription->clinic_id,
+                    'subscription_id' => $subscription->id,
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('[DentFlow] Expiry warning failed', [
+                    'subscription_id' => $subscription->id,
+                    'error'           => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+})->dailyAt('09:00')->timezone('Africa/Addis_Ababa')->name('subscriptions:expiry-warnings');
+
+// ── 7. Recall Notifications (daily at 08:00 EAT) ─────────────────────────────
+// Finds recalls due in exactly 7 days and sends DB + email reminders.
+Schedule::call(function () {
+    $targetDate = now()->addDays(7)->toDateString();
+
+    $recalls = \App\Models\Recall::where('status', 'pending')
+        ->where('notification_sent', false)
+        ->whereDate('due_date', $targetDate)
+        ->with(['patient.clinic', 'dentist'])
+        ->get();
+
+    foreach ($recalls as $recall) {
+        try {
+            // Send DB notification + email via NotificationService
+            NotificationService::recallDue($recall);
+
+            $recall->update([
+                'notification_sent'    => true,
+                'notification_sent_at' => now(),
+                'status'               => 'notified',
+            ]);
+
+            \Illuminate\Support\Facades\Log::info('Recall notification sent', [
+                'recall_id'   => $recall->id,
+                'patient_id'  => $recall->patient_id,
+                'due_date'    => $recall->due_date->toDateString(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[DentFlow] Recall notification failed', [
+                'recall_id' => $recall->id,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+    }
+})->dailyAt('08:00')->timezone('Africa/Addis_Ababa')->name('recalls:send-notifications');
+
+// ── 8. Invoice Auto-Lock (every hour) ─────────────────────────────────────────
+// Locks invoices that have been PAID for 24+ hours (audit immutability).
+Schedule::call(function () {
+    $invoices = \App\Models\Invoice::where('lifecycle_status', \App\Models\Invoice::STATUS_PAID)
+        ->whereNotNull('locked_at')
+        ->where('locked_at', '<=', now())
+        ->get();
+
+    foreach ($invoices as $invoice) {
+        try {
+            // Find who locked it (finalized_by)
+            $by = \App\Models\User::find($invoice->locked_by ?? $invoice->finalized_by);
+            if ($by) {
+                $invoice->lockForAudit($by);
+                \Illuminate\Support\Facades\Log::info('[DentFlow] Invoice auto-locked', [
+                    'invoice_id'     => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[DentFlow] Invoice auto-lock failed', [
+                'invoice_id' => $invoice->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+})->hourly()->name('invoices:auto-lock');

@@ -47,58 +47,54 @@ export default function RegisterPage() {
 
   const handleSubmit = async () => {
     setSubmitError('');
+    const isFree = formData.isFree === true || formData.planType === 'free';
     try {
-      // ── Step 1: Register clinic + admin user + pending subscription ──────
+      // ── Step 1: Register clinic + admin user + subscription ──────────────
       const step1Payload = {
-        // Clinic fields — must match RegisterClinicRequest exactly
         clinic_name:    formData.clinicName,
-        clinic_email:   formData.clinicEmail,   // clinic contact email
+        clinic_email:   formData.clinicEmail,
         clinic_phone:   formData.phone,
         clinic_address: formData.address,
         clinic_city:    formData.city,
         clinic_country: formData.country,
 
-        // Admin (owner) fields
         admin_name:                  formData.ownerName,
         admin_email:                 formData.ownerEmail,
         admin_phone:                 formData.ownerPhone || '',
         admin_password:              formData.password,
         admin_password_confirmation: formData.confirmPassword,
 
-        // Plan & billing
-        plan_id:        parseInt(formData.planId),   // must be integer
-        billing_cycle:  formData.billing,             // 'monthly' | 'annual'
-        payment_method: formData.paymentMethod,       // 'telebirr' | 'chapa' | 'paypal' | 'bank_transfer'
+        plan_id:        parseInt(formData.planId),
+        billing_cycle:  isFree ? 'trial' : formData.billing,
+        // Free plans don't have a payment method
+        payment_method: isFree ? 'none' : formData.paymentMethod,
       };
 
       const regResult = await registerClinic.mutateAsync(step1Payload);
-      // regResult.data.clinic.id — the new clinic ID
-      const clinicId = regResult.data?.clinic?.id;
+      const clinicId  = regResult.data?.clinic?.id;
 
       if (!clinicId) throw new Error('Clinic ID missing from registration response.');
 
-      // ── Step 2: Simulate payment ─────────────────────────────────────────
-      const paymentPayload = {
-        clinic_id:      clinicId,
-        payment_method: formData.paymentMethod,
-        // phone required for telebirr
-        ...(formData.paymentMethod === 'telebirr' && { phone_number: formData.phone }),
-      };
+      // ── Step 2: Payment simulation — SKIP for free plans ────────────────
+      if (!isFree) {
+        const paymentPayload = {
+          clinic_id:      clinicId,
+          payment_method: formData.paymentMethod,
+          ...(formData.paymentMethod === 'telebirr' && { phone_number: formData.phone }),
+        };
+        await mockPayment.mutateAsync(paymentPayload);
+      }
 
-      await mockPayment.mutateAsync(paymentPayload);
-
-      // ── Done: go to pending approval page ────────────────────────────────
+      // ── Done ─────────────────────────────────────────────────────────────
       navigate('/pending-approval', {
-        state: { clinicId, clinicName: formData.clinicName },
+        state: { clinicId, clinicName: formData.clinicName, isFree },
       });
 
     } catch (err) {
-      // Show validation or server errors
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.errors
-          ? Object.values(err.response.data.errors).flat().join(' ')
-          : err.message || 'Submission failed. Please try again.';
+      const errData = err?.response?.data;
+      const message = errData?.errors
+        ? Object.values(errData.errors).flat().join(' ')
+        : errData?.message || err.message || 'Submission failed. Please try again.';
       setSubmitError(message);
     }
   };

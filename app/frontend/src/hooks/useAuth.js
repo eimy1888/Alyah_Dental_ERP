@@ -207,7 +207,9 @@ export const useAuth = () => {
         // clearAuth() was causing a race: user → null → re-render → wrong redirect
         setAuth(userData, clinic, branch);
 
-        const redirectPath = ROLE_REDIRECTS[userData.role] || '/login';
+        const redirectPath = userData.must_change_password
+          ? '/change-password'
+          : ROLE_REDIRECTS[userData.role] || '/login';
         navigate(redirectPath, { replace: true });
         return true;
       } catch (err) {

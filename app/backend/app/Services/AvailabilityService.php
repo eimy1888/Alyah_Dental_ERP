@@ -78,10 +78,7 @@ class AvailabilityService
             ->whereNotIn('status', ['cancelled', 'no_show'])
             ->where(function ($query) use ($dateTime, $slotEnd) {
                 $query->where('appointment_time', '<', $slotEnd)
-                    ->whereRaw(
-                        "DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?",
-                                [$dateTime]
-                    );
+                    ->whereRaw(\App\Helpers\DbHelper::appointmentEndGt(), [$dateTime]);
             })
             ->exists();
     }

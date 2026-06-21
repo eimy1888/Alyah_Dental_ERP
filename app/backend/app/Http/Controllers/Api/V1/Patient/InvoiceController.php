@@ -38,6 +38,7 @@ class InvoiceController extends Controller
         }
 
         $query = Invoice::where('patient_id', $patientId)
+            ->whereNotIn('lifecycle_status', [\App\Models\Invoice::STATUS_DRAFT])
             ->with(['items'])
             ->orderByDesc('issued_at');
 
@@ -77,6 +78,7 @@ class InvoiceController extends Controller
         }
 
         $invoice = Invoice::where('patient_id', $patientId)
+            ->whereNotIn('lifecycle_status', [\App\Models\Invoice::STATUS_DRAFT])
             ->where('id', $id)
             ->with(['items', 'payments', 'episode'])
             ->firstOrFail();
@@ -122,7 +124,9 @@ class InvoiceController extends Controller
             ]]);
         }
 
-        $invoices = Invoice::where('patient_id', $patientId)->get();
+        $invoices = Invoice::where('patient_id', $patientId)
+            ->whereNotIn('lifecycle_status', [\App\Models\Invoice::STATUS_DRAFT])
+            ->get();
 
         return response()->json([
             'success' => true,

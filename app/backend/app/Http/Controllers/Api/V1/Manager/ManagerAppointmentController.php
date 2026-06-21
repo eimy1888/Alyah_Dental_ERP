@@ -193,21 +193,13 @@ class ManagerAppointmentController extends Controller
         $dentistUserId   = $staff->user->id;
         $appointmentTime = Carbon::parse($request->appointment_time);
         $duration        = $request->duration_minutes ?? self::SLOT_MINUTES;
-        $appointmentEnd  = (clone $appointmentTime)->addMinutes($duration);
-
-        $dentistOverlap = Appointment::where('clinic_id', $clinicId)
-            ->where('branch_id', $branchId)
-            ->where('dentist_id', $dentistUserId)
-            ->whereDate('appointment_time', $appointmentTime->toDateString())
-            ->whereNotIn('status', ['cancelled', 'no_show'])
-            ->where(function ($q) use ($appointmentTime, $appointmentEnd) {
-                $q->where('appointment_time', '<', $appointmentEnd)
-                  ->whereRaw(
-                      "DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?",
-                      [$appointmentTime]
-                  );
-            })
-            ->exists();
+        $dentistOverlap = Appointment::hasDentistOverlap(
+            $clinicId,
+            $branchId,
+            $dentistUserId,
+            $appointmentTime,
+            $duration
+        );
 
         if ($dentistOverlap) {
             return response()->json([
@@ -296,6 +288,25 @@ class ManagerAppointmentController extends Controller
 
         if ($request->filled('appointment_time')) {
             $data['appointment_time'] = Carbon::parse($request->appointment_time);
+        }
+
+        $newDentistId = $data['dentist_id'] ?? $appointment->dentist_id;
+        $newStart = $data['appointment_time'] ?? $appointment->appointment_time;
+        $newDuration = $data['duration_minutes'] ?? $appointment->duration_minutes;
+
+        if (Appointment::hasDentistOverlap(
+            $manager->clinic_id,
+            $manager->branch_id,
+            $newDentistId,
+            $newStart,
+            $newDuration,
+            $appointment->id
+        )) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dentist already has an appointment overlapping this time slot.',
+                'code'    => 'DENTIST_OVERLAP',
+            ], 409);
         }
 
         $appointment->update($data);
@@ -392,26 +403,16 @@ class ManagerAppointmentController extends Controller
 
         // Add to queue
         $priority     = $lateCategory === 'severe' ? 'late_arrival' : 'scheduled';
-        $lastPosition = \App\Models\QueueItem::forClinic($clinicId)
-            ->forBranch($branchId)
-            ->forDentist($appointment->dentist_id)
-            ->where('status', 'waiting')
-            ->where('priority', $priority)
-            ->max('position') ?? 0;
-
-        \App\Models\QueueItem::create([
-            'clinic_id'      => $clinicId,
-            'branch_id'      => $branchId,
-            'appointment_id' => $appointment->id,
-            'patient_id'     => $appointment->patient_id,
-            'dentist_id'     => $appointment->dentist_id,
-            'priority'       => $priority,
-            'position'       => $lastPosition + 1,
-            'status'         => 'waiting',
-            'notes'          => $lateCategory === 'severe'
+        $queueItem = \App\Models\QueueItem::enqueueAppointment(
+            $appointment,
+            $priority,
+            $lateCategory === 'severe'
                 ? "Late arrival — {$lateMinutes} min late"
-                : ($lateCategory === 'moderate' ? "Moderate delay — {$lateMinutes} min late" : null),
-        ]);
+                : ($lateCategory === 'moderate' ? "Moderate delay — {$lateMinutes} min late" : null)
+        );
+
+        // Notify dentist patient is in queue
+        \App\Services\NotificationService::patientCheckedIn($appointment, $queueItem->position);
 
         $appointment->load(['patient', 'dentist']);
 

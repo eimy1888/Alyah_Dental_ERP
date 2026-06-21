@@ -41,5 +41,7 @@ Route::prefix('v1')->group(function () {
     // Lab Technician routes
     require __DIR__ . '/api/v1/lab.php';
 
+    Route::middleware(['cookie.auth', 'subdomain.access'])
+        ->get('patient/{id}/timeline', [\App\Http\Controllers\Api\V1\PatientTimelineController::class, 'show']);
     
 });

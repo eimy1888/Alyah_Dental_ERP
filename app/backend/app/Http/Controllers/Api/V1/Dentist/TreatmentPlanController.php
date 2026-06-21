@@ -87,6 +87,9 @@ class TreatmentPlanController extends Controller
             'title'                  => 'required|string|max:255',
             'diagnosis'              => 'required|string|max:5000',
             'notes'                  => 'nullable|string|max:2000',
+            'status'                 => 'nullable|in:draft,proposed,approved,rejected,active,in_progress,pending_lab,completed',
+            'estimated_cost'         => 'nullable|numeric|min:0',
+            'revision_notes'         => 'nullable|string|max:2000',
             // Procedures performed / planned during checkup
             'procedure_service_ids'  => 'nullable|array',
             'procedure_service_ids.*'=> 'integer|exists:services,id',
@@ -161,7 +164,9 @@ class TreatmentPlanController extends Controller
                 'title'                  => $validated['title'],
                 'diagnosis'              => $validated['diagnosis'],
                 'notes'                  => $validated['notes'] ?? null,
-                'status'                 => TreatmentPlan::STATUS_ACTIVE,
+                'status'                 => $validated['status'] ?? TreatmentPlan::STATUS_PROPOSED,
+                'estimated_cost'         => (float) ($validated['estimated_cost'] ?? 0),
+                'revision_notes'         => $validated['revision_notes'] ?? null,
                 'requires_lab'           => (bool) ($validated['requires_lab'] ?? false),
                 'lab_order_type'         => $validated['lab_order_type'] ?? null,
                 'lab_material'           => $validated['lab_material'] ?? null,
@@ -174,33 +179,48 @@ class TreatmentPlanController extends Controller
 
             $appointment->update(['treatment_plan_id' => $plan->id]);
 
-            // ── Build the single UNPAID Treatment_Invoice ─────────────────────
-            $invoice = Invoice::create([
-                'clinic_id'        => $clinicId,
-                'branch_id'        => $dentist->branch_id,
-                'patient_id'       => $appointment->patient_id,
-                'appointment_id'   => $appointment->id,
-                'created_by'       => $dentist->id,
-                'invoice_number'   => Invoice::generateNumber($clinicId),
-                'invoice_type'     => Invoice::TYPE_TREATMENT,
-                'lifecycle_status' => Invoice::STATUS_UNPAID,
-                'total'            => 0,
-                'estimated_total'  => 0,
-                'tax_rate'         => $taxRate,
-                'tax_amount'       => 0,
-                'paid'             => 0,
-                'pre_paid'         => 0,
-                'balance'          => 0,
-                'status'           => 'sent',
-                'issued_at'        => now(),
-                'due_date'         => now()->addDays(7),
-                'notes'            => "Treatment: {$plan->title}" .
-                    ($appointment->is_emergency_bypass ? ' [EMERGENCY]' : ''),
-            ]);
+            // ── Reuse the DRAFT invoice created at booking time ───────────────
+            // At booking, BillingModelResolver already created a DRAFT invoice
+            // (service or treatment). We find it, add any extra procedures
+            // from checkup, then call releaseToAccountant() which promotes
+            // it from DRAFT → UNPAID so the accountant can see and collect it.
 
-            // Add procedure line items
+            // Find existing DRAFT invoice for this appointment
+            $invoice = Invoice::where('appointment_id', $appointment->id)
+                ->where('lifecycle_status', Invoice::STATUS_DRAFT)
+                ->whereIn('invoice_type', [Invoice::TYPE_SERVICE, Invoice::TYPE_TREATMENT, Invoice::TYPE_HYBRID])
+                ->first();
+
+            // Fallback: if somehow no draft invoice exists, create one now
+            if (!$invoice) {
+                $invoice = Invoice::create([
+                    'clinic_id'        => $clinicId,
+                    'branch_id'        => $dentist->branch_id,
+                    'patient_id'       => $appointment->patient_id,
+                    'appointment_id'   => $appointment->id,
+                    'created_by'       => $dentist->id,
+                    'invoice_number'   => Invoice::generateNumber($clinicId),
+                    'invoice_type'     => Invoice::TYPE_TREATMENT,
+                    'lifecycle_status' => Invoice::STATUS_DRAFT,
+                    'total'            => 0,
+                    'estimated_total'  => 0,
+                    'tax_rate'         => $taxRate,
+                    'tax_amount'       => 0,
+                    'paid'             => 0,
+                    'pre_paid'         => 0,
+                    'balance'          => 0,
+                    'status'           => 'draft',
+                    'issued_at'        => now(),
+                    'due_date'         => now()->addDays(7),
+                    'notes'            => "Treatment: {$plan->title}",
+                ]);
+                $appointment->update(['treatment_invoice_id' => $invoice->id]);
+            }
+
+            // ── Add any extra procedures selected during checkup ─────────────
+            // These are ADDITIONAL to what the dentist may have added via
+            // POST /dentist/episodes/{id}/procedures during the session.
             $serviceIds = $validated['procedure_service_ids'] ?? [];
-            $subtotal   = 0;
 
             if (!empty($serviceIds)) {
                 $services = Service::where('clinic_id', $clinicId)
@@ -209,14 +229,19 @@ class TreatmentPlanController extends Controller
                 foreach ($serviceIds as $svcId) {
                     $svc = $services[$svcId] ?? null;
                     if (!$svc) continue;
-                    $price    = (float) $svc->price;
-                    $subtotal += $price;
+
+                    // Avoid duplicate: skip if this service item already on invoice
+                    $alreadyAdded = $invoice->items()
+                        ->where('source_id', $svc->id)
+                        ->where('source_type', Service::class)
+                        ->exists();
+                    if ($alreadyAdded) continue;
 
                     InvoiceItem::create([
                         'invoice_id'  => $invoice->id,
                         'description' => $svc->name,
                         'quantity'    => 1,
-                        'unit_price'  => $price,
+                        'unit_price'  => (float) $svc->price,
                         'item_type'   => InvoiceItem::TYPE_PROCEDURE,
                         'source_type' => Service::class,
                         'source_id'   => $svc->id,
@@ -226,56 +251,56 @@ class TreatmentPlanController extends Controller
                 }
             }
 
-            // REQ-9: Lab fee included in main invoice (varies by type)
+            // ── Add lab fee line if required ──────────────────────────────────
             if ($plan->requires_lab) {
                 $labFees = [
-                    'crown'        => 500,
-                    'bridge'       => 500,
-                    'denture'      => 800,
-                    'aligner'      => 1200,
-                    'implant_crown'=> 700,
-                    'veneer'       => 600,
+                    'crown'        => 500, 'bridge'       => 500,
+                    'denture'      => 800, 'aligner'      => 1200,
+                    'implant_crown'=> 700, 'veneer'       => 600,
                     'other'        => 500,
                 ];
-                $labFee   = (float) ($labFees[$plan->lab_order_type] ?? 500);
-                $subtotal += $labFee;
+                $labFee = (float) ($labFees[$plan->lab_order_type] ?? 500);
 
-                InvoiceItem::create([
-                    'invoice_id'  => $invoice->id,
-                    'description' => 'Fabrication Lab — ' . ucfirst($plan->lab_order_type ?? 'Other'),
-                    'quantity'    => 1,
-                    'unit_price'  => $labFee,
-                    'item_type'   => 'lab_fee',
-                    'added_by'    => $dentist->id,
-                    'is_locked'   => false,
-                ]);
+                // Only add if not already there
+                $labAlreadyAdded = $invoice->items()
+                    ->where('item_type', 'lab_fee')
+                    ->exists();
+
+                if (!$labAlreadyAdded) {
+                    InvoiceItem::create([
+                        'invoice_id'  => $invoice->id,
+                        'description' => 'Fabrication Lab — ' . ucfirst($plan->lab_order_type ?? 'Other'),
+                        'quantity'    => 1,
+                        'unit_price'  => $labFee,
+                        'item_type'   => 'lab_fee',
+                        'added_by'    => $dentist->id,
+                        'is_locked'   => false,
+                    ]);
+                }
             }
 
-            // Calculate and save totals
-            $taxAmount = round($subtotal * ($taxRate / 100), 2);
-            $total     = $subtotal + $taxAmount;
-
-            $invoice->update([
-                'total'           => $total,
-                'estimated_total' => $total,
-                'tax_amount'      => $taxAmount,
-                'balance'         => $total,
-            ]);
+            // ── RELEASE TO ACCOUNTANT ─────────────────────────────────────────
+            // This is the key step: promotes DRAFT → UNPAID.
+            // Recalculates totals from ALL items (original service + any added
+            // during checkup), then makes the invoice visible to accountant.
+            // Emergency bypass: still releases so accountant knows to collect.
+            $invoice->releaseToAccountant();
+            $invoice->refresh();
+            $total = (float) $invoice->total;
 
             // Link invoice to plan
             $plan->update([
-                'invoice_id'         => $invoice->id,
-                'estimate_invoice_id'=> $invoice->id, // backward compat
+                'invoice_id'          => $invoice->id,
+                'estimate_invoice_id' => $invoice->id,
             ]);
             $appointment->update(['treatment_invoice_id' => $invoice->id]);
 
-            // REQ-4: Emergency — invoice is UNPAID but treatment is already in progress
-            // Set lifecycle to UNPAID — receptionist collects payment before discharge
+            // Emergency note
             if ($appointment->is_emergency_bypass) {
-                $invoice->update(['notes' => $invoice->notes . ' | Emergency — payment required before discharge']);
+                $invoice->update(['notes' => ($invoice->notes ?? '') . ' | Emergency — payment required before discharge']);
             }
 
-            // Clinical note
+            // ── Clinical note (signed, immutable record) ──────────────────────
             ClinicalNote::create([
                 'clinic_id'      => $clinicId,
                 'branch_id'      => $dentist->branch_id,
@@ -284,15 +309,15 @@ class TreatmentPlanController extends Controller
                 'dentist_id'     => $dentist->id,
                 'note_type'      => 'Treatment Plan',
                 'content'        => "CHECKUP COMPLETE\n\nDiagnosis: {$plan->diagnosis}"
-                    . ($requiresSpecialist ? "\nReferral: {$specialistType}" : '')
-                    . ($plan->requires_lab ? "\nLab: " . ucfirst($plan->lab_order_type ?? 'required') : '')
-                    . "\nInvoice: {$invoice->invoice_number} — ETB " . number_format($total, 2) . " (UNPAID)",
+                    . ($requiresSpecialist ? "\nReferral Required: {$specialistType}" : '')
+                    . ($plan->requires_lab ? "\nLab Required: " . ucfirst($plan->lab_order_type ?? 'required') : '')
+                    . "\nInvoice: {$invoice->invoice_number} — ETB " . number_format($total, 2) . " (AWAITING PAYMENT)",
                 'is_signed' => true,
                 'signed_at' => now(),
             ]);
 
-            // Notify accountant + patient
-            $this->notifyCheckupComplete($plan, $invoice, $dentist, $appointment);
+            // ── Notify accountant + receptionist + patient ────────────────────
+            \App\Services\NotificationService::treatmentPlanCreated($plan, $appointment, $dentist);
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -304,7 +329,7 @@ class TreatmentPlanController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Checkup complete. Invoice generated — patient must pay ETB ' .
+            'message' => 'Checkup complete. Invoice released — patient must pay ETB ' .
                 number_format($total ?? 0, 2) . ' before treatment starts.',
             'data'    => $this->formatPlan($plan, true),
         ], 201);
@@ -331,7 +356,7 @@ class TreatmentPlanController extends Controller
         }
 
         $invoice = $plan->getEffectiveInvoice();
-        if ($invoice && $invoice->lifecycle_status !== Invoice::STATUS_UNPAID) {
+        if ($invoice && !in_array($invoice->lifecycle_status, [Invoice::STATUS_DRAFT, Invoice::STATUS_UNPAID])) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invoice is immutable after payment. Cannot update plan.',
@@ -343,12 +368,27 @@ class TreatmentPlanController extends Controller
             'title'                  => 'nullable|string|max:255',
             'diagnosis'              => 'nullable|string|max:5000',
             'notes'                  => 'nullable|string|max:2000',
+            'status'                 => 'nullable|in:draft,proposed,approved,rejected,active,in_progress,pending_lab,completed,cancelled',
+            'estimated_cost'         => 'nullable|numeric|min:0',
+            'revision_notes'         => 'nullable|string|max:2000',
             'total_sessions_planned' => 'nullable|integer|min:1|max:50',
             'requires_specialist'    => 'nullable|boolean',
             'specialist_type'        => 'nullable|string|max:100',
         ]);
 
-        $plan->update(array_filter($validated, fn($v) => $v !== null));
+        $updates = array_filter($validated, fn($v) => $v !== null);
+        if (!empty($updates['revision_notes']) || array_key_exists('estimated_cost', $updates)) {
+            $updates['revision_number'] = ((int) $plan->revision_number) + 1;
+        }
+        if (($updates['status'] ?? null) === TreatmentPlan::STATUS_APPROVED) {
+            $updates['approved_at'] = now();
+            $updates['rejected_at'] = null;
+        }
+        if (($updates['status'] ?? null) === TreatmentPlan::STATUS_REJECTED) {
+            $updates['rejected_at'] = now();
+        }
+
+        $plan->update($updates);
 
         return response()->json([
             'success' => true,
@@ -361,6 +401,46 @@ class TreatmentPlanController extends Controller
     // COMPLETE  POST /dentist/treatment-plans/{id}/complete
     // REQ-16: Marks plan done → auto-schedules recall.
     // ─────────────────────────────────────────────────────────────────────────
+    public function propose(Request $request, int $id): JsonResponse
+    {
+        return $this->transitionApproval($request, $id, TreatmentPlan::STATUS_PROPOSED, 'Treatment plan proposed.');
+    }
+
+    public function approve(Request $request, int $id): JsonResponse
+    {
+        return $this->transitionApproval($request, $id, TreatmentPlan::STATUS_APPROVED, 'Treatment plan approved.');
+    }
+
+    public function reject(Request $request, int $id): JsonResponse
+    {
+        return $this->transitionApproval($request, $id, TreatmentPlan::STATUS_REJECTED, 'Treatment plan rejected.');
+    }
+
+    private function transitionApproval(Request $request, int $id, string $status, string $message): JsonResponse
+    {
+        $dentist = $request->user();
+        $plan = TreatmentPlan::forClinic($dentist->clinic_id)
+            ->where('gp_id', $dentist->id)
+            ->findOrFail($id);
+
+        $updates = ['status' => $status];
+        if ($status === TreatmentPlan::STATUS_APPROVED) {
+            $updates['approved_at'] = now();
+            $updates['rejected_at'] = null;
+        }
+        if ($status === TreatmentPlan::STATUS_REJECTED) {
+            $updates['rejected_at'] = now();
+        }
+
+        $plan->update($updates);
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'data' => $this->formatPlan($plan->fresh()),
+        ]);
+    }
+
     public function complete(Request $request, int $id): JsonResponse
     {
         $dentist = $request->user();
@@ -387,6 +467,15 @@ class TreatmentPlanController extends Controller
             ], 422);
         }
 
+        if ($plan->initialAppointment && ($blocker = $plan->initialAppointment->completionBlocker())) {
+            return response()->json([
+                'success' => false,
+                'message' => $blocker['message'],
+                'code' => $blocker['code'],
+                'data' => $blocker,
+            ], 422);
+        }
+
         DB::beginTransaction();
         try {
             $plan->update([
@@ -400,6 +489,7 @@ class TreatmentPlanController extends Controller
                 $appt->update(['status' => 'completed', 'end_time' => now()]);
                 \App\Models\QueueItem::where('appointment_id', $appt->id)
                     ->update(['status' => 'completed', 'completed_at' => now()]);
+                \App\Models\QueueItem::recalculatePositions($appt->clinic_id, $appt->branch_id, $appt->dentist_id);
             }
 
             // REQ-16: Auto-schedule recall by treatment type
@@ -569,82 +659,6 @@ class TreatmentPlanController extends Controller
     // PRIVATE HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
-    private function notifyCheckupComplete(
-        TreatmentPlan $plan,
-        Invoice $invoice,
-        User $dentist,
-        Appointment $appointment
-    ): void {
-        try {
-            $total       = number_format((float) $invoice->total, 2);
-            $patientName = $plan->patient?->full_name ?? 'Patient';
-
-            // Notify accountants
-            \App\Models\User::where('clinic_id', $plan->clinic_id)
-                ->where('role', 'accountant')->where('is_active', true)
-                ->each(function ($acc) use ($invoice, $patientName, $total) {
-                    \DB::table('notifications')->insert([
-                        'id'              => \Illuminate\Support\Str::uuid(),
-                        'type'            => 'invoice_ready_for_payment',
-                        'notifiable_type' => \App\Models\User::class,
-                        'notifiable_id'   => $acc->id,
-                        'data'            => json_encode([
-                            'title'   => 'Invoice Ready — Collect Payment',
-                            'message' => "Invoice {$invoice->invoice_number} for {$patientName}. Total: ETB {$total}. Collect now.",
-                            'invoice_id' => $invoice->id,
-                        ]),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                });
-
-            // Notify receptionists
-            \App\Models\User::where('clinic_id', $plan->clinic_id)
-                ->where('role', 'receptionist')->where('is_active', true)
-                ->each(function ($rec) use ($invoice, $patientName, $total) {
-                    \DB::table('notifications')->insert([
-                        'id'              => \Illuminate\Support\Str::uuid(),
-                        'type'            => 'invoice_ready_for_payment',
-                        'notifiable_type' => \App\Models\User::class,
-                        'notifiable_id'   => $rec->id,
-                        'data'            => json_encode([
-                            'title'   => 'PAYMENT REQUIRED — ETB ' . $total,
-                            'message' => "{$patientName} — Invoice {$invoice->invoice_number} — ETB {$total}",
-                            'invoice_id' => $invoice->id,
-                        ]),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                });
-
-            // Notify patient
-            $patientUser = \App\Models\User::where('clinic_id', $plan->clinic_id)
-                ->where('role', 'patient')
-                ->where(function ($q) use ($plan) {
-                    if ($plan->patient?->email) $q->orWhere('email', $plan->patient->email);
-                    if ($plan->patient?->phone) $q->orWhere('phone', $plan->patient->phone);
-                })->first();
-
-            if ($patientUser) {
-                \DB::table('notifications')->insert([
-                    'id'              => \Illuminate\Support\Str::uuid(),
-                    'type'            => 'treatment_plan_ready',
-                    'notifiable_type' => \App\Models\User::class,
-                    'notifiable_id'   => $patientUser->id,
-                    'data'            => json_encode([
-                        'title'   => 'Your treatment plan is ready',
-                        'message' => "Total: ETB {$total}. Please proceed to the payment desk.",
-                        'invoice_id' => $invoice->id,
-                    ]),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('[TreatmentPlan] notifyCheckupComplete: ' . $e->getMessage());
-        }
-    }
-
     /**
      * REQ-16: Auto-schedule recall by treatment type.
      */
@@ -676,17 +690,20 @@ class TreatmentPlanController extends Controller
 
             $recallDate = now()->addMonths($months);
 
-            \App\Models\Recall::create([
-                'clinic_id'      => $plan->clinic_id,
-                'branch_id'      => $plan->branch_id,
-                'patient_id'     => $plan->patient_id,
-                'appointment_id' => $plan->initial_appointment_id,
-                'due_date'       => $recallDate,
-                'notes'          => "Auto-scheduled recall after: {$plan->title}",
-                'status'         => 'scheduled',
+            $recall = \App\Models\Recall::create([
+                'clinic_id'              => $plan->clinic_id,
+                'branch_id'              => $plan->branch_id,
+                'patient_id'             => $plan->patient_id,
+                'appointment_id'         => $plan->initial_appointment_id,
+                'dentist_id'             => $plan->gp_id,
+                'recall_interval_months' => $months,
+                'due_date'               => $recallDate,
+                'notes'                  => "Auto-scheduled recall after: {$plan->title}",
+                'status'                 => \App\Models\Recall::STATUS_PENDING,
             ]);
 
             // Notify patient
+            $plan->loadMissing('patient');
             $patientUser = \App\Models\User::where('clinic_id', $plan->clinic_id)
                 ->where('role', 'patient')
                 ->where(function ($q) use ($plan) {
@@ -703,6 +720,7 @@ class TreatmentPlanController extends Controller
                     'data'            => json_encode([
                         'title'   => 'Your next visit is scheduled',
                         'message' => "Your next checkup is on {$recallDate->format('d M Y')}.",
+                        'recall_id' => $recall->id,
                     ]),
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -723,6 +741,11 @@ class TreatmentPlanController extends Controller
             'diagnosis'              => $plan->diagnosis,
             'notes'                  => $plan->notes,
             'status'                 => $plan->status,
+            'estimated_cost'         => (float) ($plan->estimated_cost ?? 0),
+            'revision_number'        => (int) ($plan->revision_number ?? 1),
+            'revision_notes'         => $plan->revision_notes,
+            'approved_at'            => $plan->approved_at?->toDateTimeString(),
+            'rejected_at'            => $plan->rejected_at?->toDateTimeString(),
             'requires_lab'           => (bool) $plan->requires_lab,
             'lab_order_type'         => $plan->lab_order_type,
             'requires_specialist'    => (bool) $plan->requires_specialist,

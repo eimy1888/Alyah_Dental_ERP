@@ -78,6 +78,36 @@ export const setRecall = async (appointmentId, payload) => {
 export const signClinicalNote = (id) =>
   apiClient.post(`/dentist/clinical-notes/${id}/sign`).then((res) => res.data);
 
+export const createClinicalNote = (data) =>
+  apiClient.post('/dentist/clinical-notes', data).then((res) => res.data);
+
+export const updateClinicalNote = (id, data) =>
+  apiClient.put(`/dentist/clinical-notes/${id}`, data).then((res) => res.data);
+
+export const createPrescription = (data) =>
+  apiClient.post('/dentist/prescriptions', data).then((res) => res.data);
+
+export const updatePrescription = (id, data) =>
+  apiClient.put(`/dentist/prescriptions/${id}`, data).then((res) => res.data);
+
+export const finalizePrescription = (id) =>
+  apiClient.post(`/dentist/prescriptions/${id}/finalize`).then((res) => res.data);
+
+export const printPrescription = (id) =>
+  apiClient.get(`/dentist/prescriptions/${id}/print`).then((res) => res.data.data);
+
+export const getPatientPrescriptions = (patientId) =>
+  apiClient.get(`/dentist/patients/${patientId}/prescriptions`).then((res) => res.data.data);
+
+export const uploadXray = (formData) =>
+  apiClient.post('/dentist/xrays', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then((res) => res.data);
+
+export const getPatientXrays = (patientId) =>
+  apiClient.get(`/dentist/patients/${patientId}/xrays`).then((res) => res.data.data);
+
+export const getPatientClinicalNotes = (patientId) =>
+  apiClient.get(`/dentist/patients/${patientId}/clinical-notes`).then((res) => res.data.data);
+
 // ─────────────────────────────────────────────────────────────
 // PATIENTS
 // ─────────────────────────────────────────────────────────────
@@ -251,6 +281,15 @@ export const updateTreatmentPlan = (id, data) =>
 
 export const completeTreatmentPlan = (id) =>
   apiClient.post(`/dentist/treatment-plans/${id}/complete`).then(r => r.data);
+
+export const proposeTreatmentPlan = (id) =>
+  apiClient.post(`/dentist/treatment-plans/${id}/propose`).then(r => r.data);
+
+export const approveTreatmentPlan = (id) =>
+  apiClient.post(`/dentist/treatment-plans/${id}/approve`).then(r => r.data);
+
+export const rejectTreatmentPlan = (id) =>
+  apiClient.post(`/dentist/treatment-plans/${id}/reject`).then(r => r.data);
 
 export const getDiagnosticServices = () =>
   apiClient.get('/dentist/treatment-plans/diagnostic-services').then(r => r.data.data);

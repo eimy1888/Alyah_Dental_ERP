@@ -57,7 +57,7 @@ class InvoiceReviewController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // FULL INVOICE LIST (unpaid + paid + locked)
+    // FULL INVOICE LIST (unpaid + paid + locked — NOT draft)
     // GET /accountant/invoices/all
     // ─────────────────────────────────────────────────────────────────────────
     public function allInvoices(Request $request): JsonResponse
@@ -65,6 +65,8 @@ class InvoiceReviewController extends Controller
         $accountant = $request->user();
 
         $query = Invoice::where('clinic_id', $accountant->clinic_id)
+            // Accountant NEVER sees DRAFT invoices — those are still with the dentist
+            ->whereNotIn('lifecycle_status', [Invoice::STATUS_DRAFT])
             ->with(['patient:id,first_name,last_name', 'appointment.dentist:id,name'])
             ->latest('issued_at');
 
@@ -104,6 +106,7 @@ class InvoiceReviewController extends Controller
         $accountant = $request->user();
 
         $invoice = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT) // accountant cannot view DRAFT
             ->with(['patient', 'items', 'payments', 'appointment.dentist:id,name'])
             ->findOrFail($id);
 
@@ -151,6 +154,7 @@ class InvoiceReviewController extends Controller
         ]);
 
         $invoice = Invoice::where('clinic_id', $accountant->clinic_id)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT) // DRAFT cannot be paid
             ->with(['patient', 'appointment.treatmentPlan'])
             ->findOrFail($id);
 
@@ -171,9 +175,12 @@ class InvoiceReviewController extends Controller
             $patient->clearDebt();
         }
 
-        // Notify dentist: treatment is now active
+        // Fire invoice paid notifications (patient email + dentist DB)
+        \App\Services\NotificationService::invoicePaid($invoice->fresh());
+
+        // Activate treatment on payment — covers all pre-treatment statuses
         $appointment = $invoice->appointment;
-        if ($appointment && $appointment->status === 'in_progress') {
+        if ($appointment && in_array($appointment->status, ['confirmed', 'checked_in', 'in_progress'])) {
             \DB::table('notifications')->insert([
                 'id'              => \Illuminate\Support\Str::uuid(),
                 'type'            => 'treatment_activated',
@@ -188,10 +195,7 @@ class InvoiceReviewController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // Activate treatment: update appointment status
-            $appointment->update([
-                'status' => 'treatment_started',
-            ]);
+            $appointment->update(['status' => 'treatment_started']);
         }
 
         return response()->json([

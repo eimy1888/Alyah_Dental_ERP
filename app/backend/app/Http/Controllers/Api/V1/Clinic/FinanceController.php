@@ -53,16 +53,18 @@ class FinanceController extends Controller
 
         $expenses = $expenseQuery->sum('amount');
 
-        // ── Outstanding receivables ───────────────────────────────────────────
+        // ── Outstanding receivables — excludes DRAFT ─────────────────────────
         $outstandingQuery = Invoice::forClinic($clinicId)
+            ->where('lifecycle_status', '!=', \App\Models\Invoice::STATUS_DRAFT)
             ->whereIn('status', ['sent', 'partial', 'overdue']);
 
         if ($branchId) $outstandingQuery->where('branch_id', $branchId);
 
         $outstanding = $outstandingQuery->sum('balance');
 
-        // ── Invoice counts ────────────────────────────────────────────────────
+        // ── Invoice counts — excludes DRAFT ──────────────────────────────────
         $invoiceQuery = Invoice::forClinic($clinicId)
+            ->where('lifecycle_status', '!=', \App\Models\Invoice::STATUS_DRAFT)
             ->whereBetween('issued_at', [$startDate, $endDate]);
 
         if ($branchId) $invoiceQuery->where('branch_id', $branchId);
@@ -182,6 +184,7 @@ class FinanceController extends Controller
 
             $outstanding = Invoice::forClinic($clinicId)
                 ->where('branch_id', $branch->id)
+                ->where('lifecycle_status', '!=', \App\Models\Invoice::STATUS_DRAFT)
                 ->whereIn('status', ['sent', 'partial', 'overdue'])
                 ->sum('balance');
 

@@ -45,7 +45,10 @@ class BillingController extends Controller
     public function getInvoices(Request $request): JsonResponse
     {
         $clinicId = $request->user()->clinic_id;
-        $query    = Invoice::forClinic($clinicId)->with(['patient', 'branch']);
+        // Accountant never sees DRAFT invoices — those are still with the dentist
+        $query    = Invoice::forClinic($clinicId)
+            ->whereNotIn('lifecycle_status', [\App\Models\Invoice::STATUS_DRAFT])
+            ->with(['patient', 'branch']);
 
         if ($request->filled('status') && $request->status !== 'all')
             $query->where('status', $request->status);
@@ -87,6 +90,7 @@ class BillingController extends Controller
     {
         $clinicId = $request->user()->clinic_id;
         $invoice  = Invoice::forClinic($clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->with(['patient', 'branch', 'items', 'payments'])
             ->findOrFail($id);
 
@@ -155,7 +159,7 @@ class BillingController extends Controller
             'patient_id'       => $request->patient_id,
             'invoice_number'   => $invoiceNumber,
             'invoice_type'     => Invoice::TYPE_SERVICE,
-            'lifecycle_status' => Invoice::STATUS_ESTIMATED,
+            'lifecycle_status' => Invoice::STATUS_UNPAID,
             'issued_at'        => Carbon::now(),
             'due_date'         => $request->due_date,
             'total'            => $total,
@@ -184,61 +188,86 @@ class BillingController extends Controller
         ], 201);
     }
 
-    // ── Record payment — identical logic to receptionist, plus card activation ──
+    // ── Record payment — routes through recordFullPayment for consistency ─────
     public function recordPayment(Request $request, int $id): JsonResponse
     {
         $accountant = $request->user();
         $clinicId   = $accountant->clinic_id;
 
-        $invoice = Invoice::forClinic($clinicId)->findOrFail($id);
+        $invoice = Invoice::forClinic($clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
+            ->findOrFail($id);
 
         $request->validate([
-            'amount'         => 'required|numeric|min:0.01|max:' . $invoice->balance,
+            'amount'         => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:cash,telebirr,chapa,bank_transfer,insurance',
             'reference'      => 'nullable|string|max:255',
         ]);
 
-        $amount = (float) $request->amount;
+        // Use recordFullPayment — enforces full payment, atomic, handles card activation
+        $result = $invoice->recordFullPayment(
+            (float) $request->amount,
+            $request->payment_method,
+            $accountant,
+            $request->reference ?? ''
+        );
 
-        Payment::create([
-            'clinic_id'      => $clinicId,
-            'branch_id'      => $invoice->branch_id,
-            'invoice_id'     => $invoice->id,
-            'patient_id'     => $invoice->patient_id,
-            'amount'         => $amount,
-            'payment_method' => $request->payment_method,
-            'reference'      => $request->reference ?? 'PAY-' . strtoupper(uniqid()),
-            'status'         => 'completed',
-            'collected_by'   => $accountant->id,
-            'paid_at'        => Carbon::now(),
-        ]);
-
-        $newPaid    = (float) $invoice->paid + $amount;
-        $newBalance = (float) $invoice->total - $newPaid;
-        $status     = $newBalance <= 0 ? 'paid' : 'partial';
-
-        $invoice->update([
-            'paid'             => $newPaid,
-            'balance'          => max(0, $newBalance),
-            'status'           => $status,
-            'lifecycle_status' => $newBalance <= 0 ? Invoice::STATUS_PAID : ($invoice->lifecycle_status ?? 'sent'),
-        ]);
+        if (!$result['success']) {
+            return response()->json($result, 422);
+        }
 
         $invoice->refresh();
-        $invoice->activateCardIfApplicable();
-        $hasCardPurchase = $invoice->isCardInvoice();
+
+        // Fire invoice paid notification (patient email + dentist DB)
+        \App\Services\NotificationService::invoicePaid($invoice);
 
         return response()->json([
             'success' => true,
-            'message' => 'Payment recorded successfully.' .
-                ($hasCardPurchase && $invoice->status === 'paid' ? ' Clinic card activated.' : ''),
+            'message' => $result['message'] . ($invoice->isCardInvoice() ? ' Clinic card activated.' : ''),
             'data'    => $this->formatInvoice($invoice->fresh(['patient', 'branch'])),
         ]);
     }
 
     public function exportInvoices(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'message' => 'Export is being generated.']);
+        $clinicId = $request->user()->clinic_id;
+
+        $query = Invoice::forClinic($clinicId)
+            ->whereNotIn('lifecycle_status', [Invoice::STATUS_DRAFT])
+            ->with(['patient', 'branch']);
+
+        if ($request->filled('from_date')) $query->whereDate('issued_at', '>=', $request->from_date);
+        if ($request->filled('to_date'))   $query->whereDate('issued_at', '<=', $request->to_date);
+        if ($request->filled('status') && $request->status !== 'all') $query->where('status', $request->status);
+
+        $invoices = $query->orderByDesc('issued_at')->limit(1000)->get();
+
+        $rows   = [];
+        $rows[] = ['Invoice #', 'Type', 'Patient', 'Branch', 'Total (ETB)', 'Paid (ETB)', 'Balance (ETB)', 'Status', 'Issued Date'];
+
+        foreach ($invoices as $inv) {
+            $rows[] = [
+                $inv->invoice_number,
+                ucfirst($inv->invoice_type ?? 'service'),
+                $inv->patient?->full_name ?? '—',
+                $inv->branch?->name ?? '—',
+                number_format((float) $inv->total, 2),
+                number_format((float) $inv->paid, 2),
+                number_format((float) $inv->balance, 2),
+                ucfirst($inv->lifecycle_status ?? $inv->status),
+                $inv->issued_at?->format('d M Y') ?? '—',
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Invoice export ready.',
+            'data'    => [
+                'headers'       => $rows[0],
+                'rows'          => array_slice($rows, 1),
+                'total_records' => $invoices->count(),
+            ],
+        ]);
     }
 
     public function getClaims(Request $request): JsonResponse

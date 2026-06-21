@@ -16,6 +16,8 @@ class ClinicalNote extends Model
         'patient_id',
         'dentist_id',
         'appointment_id',
+        'title',
+        'note',
         'note_type',
         'content',
         'chief_complaint',
@@ -191,9 +193,11 @@ class ClinicalNote extends Model
 
     public function getContentSnippetAttribute(): string
     {
-        return strlen($this->content) > 100
-            ? substr($this->content, 0, 100) . '...'
-            : $this->content;
+        $content = $this->note ?? $this->content ?? '';
+
+        return strlen($content) > 100
+            ? substr($content, 0, 100) . '...'
+            : $content;
     }
 
     // ── Medical Records transformation ────────────────────
@@ -207,8 +211,10 @@ class ClinicalNote extends Model
             'patient_id'   => $this->patient_id,
             'patient_name' => $this->patient?->full_name ?? '—',
             'date'         => $this->created_at->toDateString(),
-            'description'  => "Clinical Note: {$this->note_type}",
+            'description'  => "Clinical Note: " . ($this->title ?? $this->note_type),
             'details'      => [
+                'title'               => $this->title,
+                'note'                => $this->note ?? $this->content,
                 'note_type'           => $this->note_type,
                 'content'             => $this->content,
                 'content_snippet'     => $this->content_snippet,

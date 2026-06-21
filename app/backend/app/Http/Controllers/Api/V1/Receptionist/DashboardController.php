@@ -38,8 +38,10 @@ class DashboardController extends Controller
 
         $waitlistCount = 0;
 
+        // invoicesToday — count only released invoices (not DRAFT)
         $invoicesToday = Invoice::forClinic($clinicId)
             ->forBranch($branchId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->whereDate('created_at', $today)
             ->count();
 
@@ -73,9 +75,10 @@ class DashboardController extends Controller
                 'status'       => $a->status,
             ]);
 
-        // ── Recent Invoices ───────────────────────────────────────────────────
+        // ── Recent Invoices — excludes DRAFT ─────────────────────────────────
         $recentInvoices = Invoice::forClinic($clinicId)
             ->forBranch($branchId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->with('patient')
             ->orderByDesc('created_at')
             ->limit(5)

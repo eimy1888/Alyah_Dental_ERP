@@ -92,18 +92,30 @@ class QueueController extends Controller
 
         // Complete current if exists
         if ($current) {
+            $appointment = $current->appointment_id ? Appointment::find($current->appointment_id) : null;
+            if ($appointment && ($blocker = $appointment->completionBlocker())) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $blocker['message'],
+                    'code' => $blocker['code'],
+                    'data' => $blocker,
+                ], 422);
+            }
+
             $current->update([
                 'status'       => 'completed',
                 'completed_at' => now(),
             ]);
 
             // Also update linked appointment
-            if ($current->appointment_id) {
-                Appointment::find($current->appointment_id)?->update([
+            if ($appointment) {
+                $appointment->update([
                     'status'   => 'completed',
                     'end_time' => now(),
                 ]);
             }
+
+            QueueItem::recalculatePositions($clinicId, $branchId, $dentist->id);
         }
 
         // Find next waiting patient for this dentist
@@ -128,6 +140,7 @@ class QueueController extends Controller
             'called_at'  => now(),
             'started_at' => now(),
         ]);
+        QueueItem::recalculatePositions($clinicId, $branchId, $dentist->id);
 
         // Update linked appointment
         if ($next->appointment_id) {
@@ -177,8 +190,7 @@ class QueueController extends Controller
             'notes'          => 'EMERGENCY OVERRIDE by manager: ' . ($request->reason ?? 'No reason given'),
         ]);
 
-        // Reorder remaining queue items
-        $this->reorderQueue($clinicId, $branchId, $request->dentist_id);
+        QueueItem::recalculatePositions($clinicId, $branchId, $request->dentist_id);
 
         $queueItem->load(['patient', 'dentist']);
 
@@ -210,7 +222,7 @@ class QueueController extends Controller
             'completed_at' => now(),
         ]);
 
-        $this->reorderQueue($clinicId, $branchId, $queueItem->dentist_id);
+        QueueItem::recalculatePositions($clinicId, $branchId, $queueItem->dentist_id);
 
         return response()->json([
             'success' => true,
@@ -222,24 +234,7 @@ class QueueController extends Controller
 
     private function reorderQueue(int $clinicId, int $branchId, ?int $dentistId = null): void
     {
-        $query = QueueItem::forClinic($clinicId)
-            ->forBranch($branchId)
-            ->where('status', 'waiting');
-
-        if ($dentistId) {
-            $query->forDentist($dentistId);
-        }
-
-        $items = $query->ordered()->get();
-
-        $position = 1;
-        foreach ($items as $item) {
-            if ($item->priority === 'emergency') {
-                $item->update(['position' => 0]);
-            } else {
-                $item->update(['position' => $position++]);
-            }
-        }
+        QueueItem::recalculatePositions($clinicId, $branchId, $dentistId);
     }
 
     private function formatQueueItem(QueueItem $item): array

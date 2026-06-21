@@ -139,6 +139,15 @@ class InvoiceLifecycleService
             return ['success' => false, 'message' => 'Cannot record payment on a cancelled invoice.'];
         }
 
+        // Pre-payments are not allowed on DRAFT invoices (dentist still working)
+        if ($invoice->lifecycle_status === Invoice::STATUS_DRAFT) {
+            return [
+                'success' => false,
+                'message' => 'Invoice is still in draft. Dentist must complete the checkup before any payment can be collected.',
+                'code'    => 'INVOICE_DRAFT',
+            ];
+        }
+
         if ($amount <= 0) {
             return ['success' => false, 'message' => 'Payment amount must be greater than zero.'];
         }
@@ -197,65 +206,12 @@ class InvoiceLifecycleService
         User    $collectedBy,
         string  $reference = ''
     ): array {
-        if ($invoice->lifecycle_status === Invoice::STATUS_CANCELLED) {
-            return ['success' => false, 'message' => 'Cannot pay a cancelled invoice.'];
-        }
-
-        if ($amount <= 0) {
-            return ['success' => false, 'message' => 'Amount must be greater than zero.'];
-        }
-
-        if ($amount > (float) $invoice->balance) {
-            return [
-                'success' => false,
-                'message' => "Amount ETB {$amount} exceeds balance ETB {$invoice->balance}.",
-                'code'    => 'AMOUNT_EXCEEDS_BALANCE',
-            ];
-        }
-
-        $payment = Payment::create([
-            'clinic_id'    => $invoice->clinic_id,
-            'branch_id'    => $invoice->branch_id,
-            'invoice_id'   => $invoice->id,
-            'patient_id'   => $invoice->patient_id,
-            'amount'       => $amount,
-            'method'       => $method,
-            'reference'    => $reference ?: 'PAY-' . strtoupper(uniqid()),
-            'status'       => 'completed',
-            'collected_by' => $collectedBy->id,
-            'paid_at'      => now(),
-        ]);
-
-        $invoice->recalculate();
-        $invoice->refresh();
-
-        // Activate card if this was a card invoice
-        $invoice->activateCardIfApplicable();
-
-        BillingEvent::log(
-            $invoice,
-            BillingEvent::EVENT_PAYMENT_RECORDED,
+        return $invoice->recordFullPayment(
             $amount,
-            (float) $invoice->total,
-            ['method' => $method, 'payment_id' => $payment->id, 'reference' => $payment->reference],
-            $collectedBy->id,
-            $invoice->appointment_id
+            $method,
+            $collectedBy,
+            $reference ?: 'PAY-' . strtoupper(uniqid())
         );
-
-        return [
-            'success' => true,
-            'message' => 'Payment recorded.' . ($invoice->activateCardIfApplicable() ? ' Card activated.' : ''),
-            'data'    => [
-                'payment_id'       => $payment->id,
-                'reference'        => $payment->reference,
-                'amount_paid'      => $amount,
-                'invoice_total'    => (float) $invoice->total,
-                'invoice_paid'     => (float) $invoice->paid,
-                'invoice_balance'  => (float) $invoice->balance,
-                'lifecycle_status' => $invoice->lifecycle_status,
-                'invoice_status'   => $invoice->status,
-            ],
-        ];
     }
 
     /**

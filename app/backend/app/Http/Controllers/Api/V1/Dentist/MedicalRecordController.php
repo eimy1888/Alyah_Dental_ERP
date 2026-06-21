@@ -17,6 +17,7 @@ use App\Models\TreatmentEpisode;
 use App\Models\XRay;
 use App\Services\BillingCalculatorService;
 use App\Services\InvoiceLifecycleService;
+use App\Services\InventoryConsumptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +26,8 @@ class MedicalRecordController extends Controller
 {
     public function __construct(
         private BillingCalculatorService $calculator,
-        private InvoiceLifecycleService  $lifecycle
+        private InvoiceLifecycleService  $lifecycle,
+        private ?InventoryConsumptionService $inventory = null
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -390,6 +392,7 @@ class MedicalRecordController extends Controller
                 DB::rollBack();
                 return response()->json(['success' => false, 'message' => $result['message']], 422);
             }
+            ($this->inventory ?? app(InventoryConsumptionService::class))->restoreForProcedure($procedure, $dentist);
             $procedure->delete();
             DB::commit();
         } catch (\Throwable $e) {
@@ -453,12 +456,11 @@ class MedicalRecordController extends Controller
                 }
             }
 
-            // Mark appointment completed
-            $appointment->update(['status' => 'completed', 'end_time' => now()]);
-
-            // Update queue item
-            \App\Models\QueueItem::where('appointment_id', $appointment->id)
-                ->update(['status' => 'completed', 'completed_at' => now()]);
+            Procedure::where('appointment_id', $appointment->id)
+                ->where('status', 'performed')
+                ->with('service.inventoryItems')
+                ->get()
+                ->each(fn(Procedure $procedure) => ($this->inventory ?? app(InventoryConsumptionService::class))->consumeForProcedure($procedure, $dentist));
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -471,7 +473,7 @@ class MedicalRecordController extends Controller
             'message' => 'Treatment completed. Invoice(s) submitted for accountant review.',
             'data'    => [
                 'appointment_id'    => $appointment->id,
-                'status'            => $appointment->status,
+                'status'            => $appointment->fresh()->status,
                 'finalized_episodes'=> $finalizedEpisodes,
                 'billing_summary'   => $appointment->fresh()->getBillingSummary(),
             ],

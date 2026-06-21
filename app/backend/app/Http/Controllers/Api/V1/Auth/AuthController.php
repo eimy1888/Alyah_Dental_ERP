@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 //use Illuminate\Support\Facades\Cookie;
 // use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
@@ -55,7 +56,12 @@ class AuthController extends Controller
 
     $pat = PersonalAccessToken::findToken($token);
 
-    return $pat?->tokenable;
+    if (! $pat || ($pat->expires_at && $pat->expires_at->isPast())) {
+        $pat?->delete();
+        return null;
+    }
+
+    return $pat->tokenable->withAccessToken($pat);
 }
 
     /**
@@ -63,16 +69,30 @@ class AuthController extends Controller
      */
     public function login(LoginRequest $request): JsonResponse
     {
+        $rateLimitKey = $this->loginRateLimitKey($request);
+
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many login attempts. Please try again later.',
+                'retry_after' => RateLimiter::availableIn($rateLimitKey),
+            ], 429);
+        }
+
         $user = User::where('email', $request->email)
                     ->with(['clinic:id,name,status,plan_id,slug,subdomain', 'branch:id,name,location,status'])
                     ->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
+            RateLimiter::hit($rateLimitKey, 15 * 60);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email or password.',
             ], 401);
         }
+
+        RateLimiter::clear($rateLimitKey);
 
         if (! $user->is_active) {
             return response()->json([
@@ -99,7 +119,7 @@ class AuthController extends Controller
                 ?? \Illuminate\Support\Str::slug($user->clinic->name);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['*'], now()->addDays(7))->plainTextToken;
 
         return response()->json([
             'success' => true,
@@ -112,6 +132,7 @@ class AuthController extends Controller
                     'phone'     => $user->phone,
                     'role'      => $user->role,
                     'is_active' => $user->is_active,
+                    'must_change_password' => $user->must_change_password,
                     'clinic_id' => $user->clinic_id,
                     'branch_id' => $user->branch_id,
                 ],
@@ -128,6 +149,8 @@ class AuthController extends Controller
                     'location' => $user->branch->location,
                     'status'   => $user->branch->status,
                 ] : null,
+                'must_change_password' => $user->must_change_password,
+                'redirect_to' => $user->must_change_password ? '/change-password' : null,
             ],
         ])->cookie(
             'dentflow_token',
@@ -150,6 +173,8 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
+        $request->user('sanctum')?->currentAccessToken()?->delete();
+
         $token = $request->cookie('dentflow_token');
 
         if ($token) {
@@ -200,6 +225,7 @@ class AuthController extends Controller
                     'phone'     => $user->phone,
                     'role'      => $user->role,
                     'is_active' => $user->is_active,
+                    'must_change_password' => $user->must_change_password,
                     'clinic_id' => $user->clinic_id,
                     'branch_id' => $user->branch_id,
                 ],
@@ -216,6 +242,8 @@ class AuthController extends Controller
                     'location' => $user->branch->location,
                     'status'   => $user->branch->status,
                 ] : null,
+                'must_change_password' => $user->must_change_password,
+                'redirect_to' => $user->must_change_password ? '/change-password' : null,
             ],
         ]);
     }
@@ -257,7 +285,7 @@ class AuthController extends Controller
             'status'     => 'active',
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['*'], now()->addDays(7))->plainTextToken;
 
         return response()->json([
             'success' => true,
@@ -270,6 +298,7 @@ class AuthController extends Controller
                     'phone'     => $user->phone,
                     'role'      => $user->role,
                     'is_active' => $user->is_active,
+                    'must_change_password' => $user->must_change_password,
                     'clinic_id' => $user->clinic_id,
                     'branch_id' => $user->branch_id,
                 ],
@@ -291,5 +320,10 @@ class AuthController extends Controller
             false,
             'lax'
         );
+    }
+
+    private function loginRateLimitKey(Request $request): string
+    {
+        return 'login:' . sha1(strtolower((string) $request->input('email')) . '|' . $request->ip());
     }
 }

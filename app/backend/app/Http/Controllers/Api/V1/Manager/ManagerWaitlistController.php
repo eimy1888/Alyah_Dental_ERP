@@ -191,7 +191,7 @@ class ManagerWaitlistController extends Controller
                 ->whereNotIn('status', ['cancelled', 'no_show'])
                 ->where(function ($query) use ($now, $slotEnd) {
                     $query->where('appointment_time', '<', $slotEnd)
-                          ->whereRaw("DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?", [$now]);
+                          ->whereRaw(\App\Helpers\DbHelper::appointmentEndGt(), [$now]);
                 })
                 ->exists();
 

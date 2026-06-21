@@ -10,6 +10,9 @@ use App\Http\Controllers\Api\V1\Dentist\SettingsController;
 use App\Http\Controllers\Api\V1\Dentist\ReferralController;
 use App\Http\Controllers\Api\V1\Dentist\TreatmentEpisodeController;
 use App\Http\Controllers\Api\V1\Dentist\TreatmentPlanController;
+use App\Http\Controllers\Api\V1\Dentist\PrescriptionController;
+use App\Http\Controllers\Api\V1\Dentist\XRayController;
+use App\Http\Controllers\Api\V1\Dentist\ClinicalNoteController;
 use App\Http\Controllers\Api\V1\QueueController;
 
 Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group(function () {
@@ -22,6 +25,25 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group
         Route::get('/',           [NotificationController::class, 'index']);
         Route::get('/count',      [NotificationController::class, 'count']);
         Route::post('/mark-read', [NotificationController::class, 'markRead']);
+    });
+
+    Route::prefix('prescriptions')->group(function () {
+        Route::post('/', [PrescriptionController::class, 'store']);
+        Route::get('/{id}', [PrescriptionController::class, 'show']);
+        Route::put('/{id}', [PrescriptionController::class, 'update']);
+        Route::post('/{id}/finalize', [PrescriptionController::class, 'finalize']);
+        Route::get('/{id}/print', [PrescriptionController::class, 'print']);
+    });
+
+    Route::prefix('xrays')->group(function () {
+        Route::post('/', [XRayController::class, 'store']);
+        Route::get('/{id}', [XRayController::class, 'show']);
+    });
+
+    Route::prefix('clinical-notes')->group(function () {
+        Route::post('/', [ClinicalNoteController::class, 'store']);
+        Route::put('/{id}', [ClinicalNoteController::class, 'update']);
+        Route::post('/{id}/sign', [ClinicalNoteController::class, 'sign']);
     });
 
     // ── Appointments ──────────────────────────────────────
@@ -41,12 +63,14 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group
     });
 
     // ── Clinical note signing ─────────────────────────────
-    Route::post('clinical-notes/{id}/sign', [AppointmentController::class, 'signNote']);
 
     // ── Patients ──────────────────────────────────────────
     Route::prefix('patients')->group(function () {
         Route::get('/',               [PatientController::class, 'index']);
         Route::get('/{id}',           [PatientController::class, 'show']);
+        Route::get('/{id}/prescriptions', [PrescriptionController::class, 'patientHistory']);
+        Route::get('/{id}/xrays', [XRayController::class, 'patientHistory']);
+        Route::get('/{id}/clinical-notes', [ClinicalNoteController::class, 'patientHistory']);
         Route::post('/{id}/notes',    [PatientController::class, 'addNote']);
         Route::put('/{id}/insurance', [PatientController::class, 'updateInsurance']);
     });
@@ -85,6 +109,8 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group
         Route::get('/',    [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'index']);
         Route::post('/',   [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'store']);
         Route::get('/{id}',[\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'show']);
+        Route::put('/{id}/status', [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'updateStatus']);
+        Route::post('/{id}/acknowledge', [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'acknowledge']);
         Route::delete('/{id}', [\App\Http\Controllers\Api\V1\Dentist\LabOrderController::class, 'destroy']);
     });
 
@@ -114,6 +140,9 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('dentist')->group
         Route::post('/',                                [TreatmentPlanController::class, 'store']);
         Route::get('/{id}',                             [TreatmentPlanController::class, 'show']);
         Route::put('/{id}',                             [TreatmentPlanController::class, 'update']);
+        Route::post('/{id}/propose',                    [TreatmentPlanController::class, 'propose']);
+        Route::post('/{id}/approve',                    [TreatmentPlanController::class, 'approve']);
+        Route::post('/{id}/reject',                     [TreatmentPlanController::class, 'reject']);
         Route::post('/{id}/complete',                   [TreatmentPlanController::class, 'complete']);
     });
 });

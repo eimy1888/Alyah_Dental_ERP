@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\V1\Platform\AnalyticsController;
 use App\Http\Controllers\Api\V1\Platform\AuditLogController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['cookie.auth'])->prefix('platform')->group(function () {
+Route::middleware(['cookie.auth', 'role:platform_admin'])->prefix('platform')->group(function () {
 
     // ── Analytics ────────────────────────────────────────────────────────────
     Route::get('analytics', [AnalyticsController::class, 'index']);
@@ -53,4 +53,8 @@ Route::middleware(['cookie.auth'])->prefix('platform')->group(function () {
     Route::get('audit-logs',          [AuditLogController::class, 'index']);
     Route::get('audit-logs/events',   [AuditLogController::class, 'events']);
     Route::get('audit-logs/{auditLog}',[AuditLogController::class, 'show']);
+
+    // ── Mail Health (SMTP diagnostics) ────────────────────────────────────────
+    Route::get('mail/config',  [\App\Http\Controllers\Api\V1\Platform\MailHealthController::class, 'config']);
+    Route::post('mail/test',   [\App\Http\Controllers\Api\V1\Platform\MailHealthController::class, 'test']);
 });

@@ -6,8 +6,11 @@ import apiClient from './services/axiosInstance';
 // ── Public Pages ──────────────────────────────────────────────────────────────
 import LandingPage         from './pages/landing/LandingPage';
 import LoginPage           from './pages/auth/LoginPage';
+import ChangePasswordPage  from './pages/auth/ChangePasswordPage';
 import RegisterPage        from './pages/auth/RegisterPage';
 import PendingApprovalPage from './pages/auth/PendingApprovalPage';
+import ForgotPasswordPage  from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage   from './pages/auth/ResetPasswordPage';
 
 // ── Clinic Showcase ───────────────────────────────────────────────────────────
 import PublicLayout  from './components/layout/PublicLayout';
@@ -47,7 +50,8 @@ import AdminSettings  from './pages/admin/Settings';
 import AdminAppointments from './pages/admin/Appointments';
 import AdminAuditLog  from './pages/admin/AuditLog';
 import AdminDentists  from './pages/admin/Dentists';
-import AdminAuditLog  from './pages/admin/AuditLog';
+import AdminPatients  from './pages/admin/Patients';
+import AdminDocuments from './pages/admin/Documents';
 
 // ── Branch Manager ────────────────────────────────────────────────────────────
 import ManagerDashboard    from './pages/manager/Dashboard';
@@ -63,6 +67,7 @@ import ManagerSetting      from './pages/manager/Setting';
 import DentistDashboard      from './pages/dentist/Dashboard';
 import DentistMyAppointments from './pages/dentist/MyAppointments';
 import DentistPatients       from './pages/dentist/Patients';
+import DentistClinical       from './pages/dentist/Clinical';
 import DentistMedicalRecords from './pages/dentist/MedicalRecords';
 import DentistSettings       from './pages/dentist/Settings';
 
@@ -148,6 +153,10 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
   if (isLoggingOut) return null;
   if (!user) return <Navigate to="/login" replace />;
 
+  if (user.must_change_password && window.location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />;
+  }
+
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     const slug = user?.clinic?.slug;
     if (slug && user.role !== 'platform_admin') {
@@ -183,8 +192,12 @@ export default function App() {
         */}
         <Route path="/"                        element={<LandingPage />} />
         <Route path="/login"                   element={<LoginPage />} />
+        <Route path="/change-password"         element={<ProtectedGroup><ChangePasswordPage /></ProtectedGroup>} />
         <Route path="/register"                element={<RegisterPage />} />
+        <Route path="/pending-approval"        element={<PendingApprovalPage />} />
         <Route path="/clinic/pending-approval" element={<PendingApprovalPage />} />
+        <Route path="/forgot-password"         element={<ForgotPasswordPage />} />
+        <Route path="/reset-password"          element={<ResetPasswordPage />} />
         <Route path="/clinic/:slug/login"      element={<ClinicLoginPage />} />
         {/* <Route path="/clinic/:slug/register"   element={<ClinicRegisterPage />} /> */}
 
@@ -243,7 +256,8 @@ export default function App() {
           <Route path="reports"    element={<AdminReports />} />
           <Route path="settings"   element={<AdminSettings />} />
           <Route path="appointments" element={<AdminAppointments />} />
-          <Route path="audit-log"  element={<AdminAuditLog />} />
+          <Route path="patients"   element={<AdminPatients />} />
+          <Route path="documents"  element={<AdminDocuments />} />
           <Route path="audit-log"  element={<AdminAuditLog />} />
         </Route>
 
@@ -280,6 +294,7 @@ export default function App() {
           <Route path="dashboard"    element={<DentistDashboard />} />
           <Route path="appointments" element={<DentistMyAppointments />} />
           <Route path="patients"     element={<DentistPatients />} />
+          <Route path="clinical"     element={<DentistClinical />} />
           <Route path="medical-records" element={<DentistMedicalRecords />} />
           <Route path="settings"     element={<DentistSettings />} />
         </Route>

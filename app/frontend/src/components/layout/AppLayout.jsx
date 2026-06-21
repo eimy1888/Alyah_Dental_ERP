@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, CalendarDays, ListTodo,
   Receipt, Package, BarChart3, TrendingUp, FileText,
   UserRound, Building2, UserCog, Wallet, ClipboardList,
-  X, FlaskConical,
+  X, FlaskConical, Stethoscope,
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import { useAuth } from '../../hooks/useAuth';
@@ -32,16 +32,19 @@ function useETTClock() {
 /* ── Nav config ────────────────────────────────────────────────────────────── */
 const NAV_CONFIG = {
   clinic_admin: [
-    { label: 'Dashboard',  to: '/admin/dashboard',  icon: LayoutDashboard },
-    { label: 'Branches',   to: '/admin/branches',   icon: Building2 },
-    { label: 'Staff',      to: '/admin/staff',       icon: UserCog },
-    { label: 'Dentists',   to: '/admin/dentists',    icon: Users },
-    { label: 'Billing',    to: '/admin/billing',     icon: Receipt },
-    { label: 'Finance',    to: '/admin/finance',     icon: TrendingUp },
-    { label: 'Inventory',  to: '/admin/inventory',   icon: Package },
-    { label: 'Reports',    to: '/admin/reports',     icon: BarChart3 },
-    { label: 'Audit Log',  to: '/admin/audit-log',   icon: ClipboardList },
-    { label: 'Settings',   to: '/admin/settings',    icon: Settings },
+    { label: 'Dashboard',    to: '/admin/dashboard',    icon: LayoutDashboard },
+    { label: 'Branches',     to: '/admin/branches',     icon: Building2 },
+    { label: 'Staff',        to: '/admin/staff',        icon: UserCog },
+    { label: 'Dentists',     to: '/admin/dentists',     icon: Users },
+    { label: 'Patients',     to: '/admin/patients',     icon: UserRound },
+    { label: 'Appointments', to: '/admin/appointments', icon: CalendarDays },
+    { label: 'Billing',      to: '/admin/billing',      icon: Receipt },
+    { label: 'Finance',      to: '/admin/finance',      icon: TrendingUp },
+    { label: 'Inventory',    to: '/admin/inventory',    icon: Package },
+    { label: 'Reports',      to: '/admin/reports',      icon: BarChart3 },
+    { label: 'Documents',    to: '/admin/documents',    icon: FileText },
+    { label: 'Audit Log',    to: '/admin/audit-log',    icon: ClipboardList },
+    { label: 'Settings',     to: '/admin/settings',     icon: Settings },
   ],
   branch_manager: [
     { label: 'Dashboard',    to: '/manager/dashboard',    icon: LayoutDashboard },
@@ -57,6 +60,7 @@ const NAV_CONFIG = {
     { label: 'Dashboard',       to: '/dentist/dashboard',       icon: LayoutDashboard },
     { label: 'My Appointments', to: '/dentist/appointments',    icon: CalendarDays },
     { label: 'Patients',        to: '/dentist/patients',        icon: Users },
+    { label: 'Clinical',        to: '/dentist/clinical',        icon: Stethoscope },
     { label: 'Medical Records', to: '/dentist/medical-records', icon: FileText },
     { label: 'Settings',        to: '/dentist/settings',        icon: Settings },
   ],
@@ -152,8 +156,8 @@ function NavItem({ label, to, icon: Icon, collapsed }) {
         `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium
         transition-all duration-150 relative
         ${isActive
-          ? 'bg-white/[0.14] text-white shadow-sm'
-          : 'text-white/55 hover:text-white hover:bg-white/[0.08]'
+          ? 'bg-blue-50 text-blue-700 shadow-sm'
+          : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
         }
         ${collapsed ? 'justify-center' : ''}
         `
@@ -163,9 +167,9 @@ function NavItem({ label, to, icon: Icon, collapsed }) {
       {({ isActive }) => (
         <>
           {isActive && (
-            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-white/70" />
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-full bg-blue-600" />
           )}
-          <Icon className={`w-[17px] h-[17px] shrink-0 ${collapsed ? '' : ''}`} />
+          <Icon className={`w-[17px] h-[17px] shrink-0`} />
           {!collapsed && <span className="leading-none">{label}</span>}
         </>
       )}
@@ -291,26 +295,28 @@ export default function AppLayout() {
     <div className="flex flex-col h-full">
 
       {/* Logo + brand */}
-      <div className={`flex items-center gap-3 px-4 py-[18px] border-b border-white/10 ${collapsed ? 'justify-center' : ''}`}>
-        {/* Icon mark */}
-        <div className="w-8 h-8 rounded-xl overflow-hidden bg-[#051525] flex items-center justify-center shrink-0 shadow-lg border border-white/10">
-          <img src="/brand/alyah-logo-icon.svg" alt="Alyah" className="w-7 h-7 object-contain" />
-        </div>
-        {!collapsed && (
-          <img src="/brand/alyah-logo-white.svg" alt="Alyah Dental ERP" className="h-8 w-auto object-contain object-left" />
+      <div className={`flex items-center gap-3 px-4 py-[18px] border-b border-gray-100 ${collapsed ? 'justify-center' : ''}`}>
+        {collapsed ? (
+          /* Collapsed — show icon only */
+          <div className="w-8 h-8 rounded-xl overflow-hidden flex items-center justify-center shrink-0">
+            <img src="/brand/alyah-logo-icon.svg" alt="Alyah" className="w-7 h-7 object-contain" />
+          </div>
+        ) : (
+          /* Expanded — show full logo only, no duplicate icon */
+          <img src="/brand/alyah-logo.svg" alt="Alyah Dental ERP" className="h-8 w-auto object-contain object-left" />
         )}
       </div>
 
       {/* User context block */}
       {!collapsed && (
-        <div className="mx-3 mt-4 mb-2 rounded-xl bg-white/[0.07] border border-white/10 px-3 py-3">
+        <div className="mx-3 mt-4 mb-2 rounded-xl bg-gray-50 border border-gray-100 px-3 py-3">
           <div className="flex items-center gap-2.5">
             <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0`}>
               <span className="text-[11px] font-black text-white">{initials}</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-bold text-white leading-none truncate">{user?.name ?? roleLabel}</p>
-              <p className="text-[10px] text-white/40 mt-0.5 truncate">{ctxName || roleLabel}</p>
+              <p className="text-[12.5px] font-bold text-gray-800 leading-none truncate">{user?.name ?? roleLabel}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5 truncate">{ctxName || roleLabel}</p>
             </div>
           </div>
         </div>
@@ -318,7 +324,7 @@ export default function AppLayout() {
 
       {/* Nav section label */}
       {!collapsed && (
-        <p className="px-5 pt-4 pb-1.5 text-[9px] font-black tracking-[0.18em] text-white/25 uppercase">Menu</p>
+        <p className="px-5 pt-4 pb-1.5 text-[9px] font-black tracking-[0.18em] text-gray-400 uppercase">Menu</p>
       )}
 
       {/* Nav links */}
@@ -329,10 +335,10 @@ export default function AppLayout() {
       </nav>
 
       {/* Logout */}
-      <div className={`px-2 py-3 border-t border-white/10`}>
+      <div className={`px-2 py-3 border-t border-gray-100`}>
         <button
           onClick={handleLogout}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-red-400 hover:bg-red-500/15 hover:text-red-300 transition-all duration-150 ${collapsed ? 'justify-center' : ''}`}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-150 ${collapsed ? 'justify-center' : ''}`}
         >
           <LogOut className="w-[17px] h-[17px] shrink-0" />
           {!collapsed && <span>Logout</span>}
@@ -360,7 +366,7 @@ export default function AppLayout() {
       </AnimatePresence>
 
       {/* Desktop sidebar */}
-      <aside className={`hidden md:flex flex-col bg-[#0D1B2A] shrink-0 transition-all duration-300 relative ${collapsed ? 'w-[68px]' : 'w-[240px]'}`}>
+      <aside className={`hidden md:flex flex-col bg-white border-r border-gray-100 shrink-0 transition-all duration-300 relative shadow-sm ${collapsed ? 'w-[68px]' : 'w-[240px]'}`}>
         {SidebarContent}
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -379,7 +385,7 @@ export default function AppLayout() {
             animate={{ x: 0 }}
             exit={{ x: -260 }}
             transition={{ type: 'spring', stiffness: 380, damping: 36 }}
-            className="fixed left-0 top-0 z-50 h-full w-[240px] flex flex-col bg-[#0D1B2A] shadow-2xl md:hidden"
+            className="fixed left-0 top-0 z-50 h-full w-[240px] flex flex-col bg-white border-r border-gray-100 shadow-2xl md:hidden"
           >
             {SidebarContent}
           </motion.aside>

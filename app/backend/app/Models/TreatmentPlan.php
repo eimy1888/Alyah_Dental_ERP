@@ -12,6 +12,9 @@ class TreatmentPlan extends Model
 
     // ── Status constants ──────────────────────────────────────────────────────
     const STATUS_DRAFT       = 'draft';
+    const STATUS_PROPOSED    = 'proposed';
+    const STATUS_APPROVED    = 'approved';
+    const STATUS_REJECTED    = 'rejected';
     const STATUS_ACTIVE      = 'active';
     const STATUS_IN_PROGRESS = 'in_progress';
     const STATUS_PENDING_LAB = 'pending_lab';
@@ -26,6 +29,9 @@ class TreatmentPlan extends Model
         'initial_appointment_id',
         'title',
         'diagnosis',
+        'estimated_cost',
+        'revision_number',
+        'revision_notes',
         'status',
         'requires_lab',
         'lab_order_type',    // crown/bridge/denture/aligner etc.
@@ -40,6 +46,8 @@ class TreatmentPlan extends Model
         'notes',
         'started_at',
         'completed_at',
+        'approved_at',
+        'rejected_at',
     ];
 
     protected $casts = [
@@ -47,8 +55,12 @@ class TreatmentPlan extends Model
         'requires_specialist'    => 'boolean',
         'started_at'             => 'datetime',
         'completed_at'           => 'datetime',
+        'approved_at'            => 'datetime',
+        'rejected_at'            => 'datetime',
         'total_sessions_planned' => 'integer',
         'total_sessions_done'    => 'integer',
+        'estimated_cost'         => 'decimal:2',
+        'revision_number'        => 'integer',
     ];
 
     // ── Relationships ──────────────────────────────────────────────────────────

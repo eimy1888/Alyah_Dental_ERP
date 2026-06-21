@@ -121,6 +121,7 @@ class ClinicController extends Controller
                 'password'  => bcrypt($tempPassword),
                 'role'      => 'clinic_admin',
                 'is_active' => true,
+                'must_change_password' => true,
             ]);
 
             try {
@@ -182,7 +183,6 @@ class ClinicController extends Controller
             'success'       => true,
             'message'       => "Clinic '{$clinic->name}' approved. Main branch created.",
             'data'          => ['status' => 'active'],
-            'temp_password' => $tempPassword,
         ]);
     }
 

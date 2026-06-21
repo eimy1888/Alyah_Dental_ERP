@@ -251,20 +251,13 @@ class AppointmentController extends Controller
                 ], 409);
             }
 
-            $appointmentEnd = $appointmentTime->copy()->addMinutes($duration);
-            $hasOverlap = Appointment::forClinic($user->clinic_id)
-                ->forBranch($user->branch_id)
-                ->where('dentist_id', $dentist->id)
-                ->whereDate('appointment_time', $appointmentTime->toDateString())
-                ->whereNotIn('status', ['cancelled', 'no_show'])
-                ->where(function ($q) use ($appointmentTime, $appointmentEnd) {
-                    $q->where('appointment_time', '<', $appointmentEnd)
-                      ->whereRaw(
-                          "DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?",
-                           [$appointmentTime]
-                      );
-                })
-                ->exists();
+            $hasOverlap = Appointment::hasDentistOverlap(
+                $user->clinic_id,
+                $user->branch_id,
+                $dentist->id,
+                $appointmentTime,
+                $duration
+            );
 
             if ($hasOverlap) {
                 return response()->json([
@@ -558,26 +551,14 @@ class AppointmentController extends Controller
         ]);
 
         $priority     = $lateCategory === 'severe' ? 'late_arrival' : 'scheduled';
-        $lastPosition = \App\Models\QueueItem::forClinic($user->clinic_id)
-            ->forBranch($user->branch_id)
-            ->forDentist($appointment->dentist_id)
-            ->where('status', 'waiting')
-            ->where('priority', $priority)
-            ->max('position') ?? 0;
+        $queueItem = \App\Models\QueueItem::enqueueAppointment(
+            $appointment,
+            $priority,
+            $lateCategory === 'severe' ? "Late arrival — {$lateMinutes} min late" : null
+        );
 
-        \App\Models\QueueItem::create([
-            'clinic_id'      => $user->clinic_id,
-            'branch_id'      => $user->branch_id,
-            'appointment_id' => $appointment->id,
-            'patient_id'     => $appointment->patient_id,
-            'dentist_id'     => $appointment->dentist_id,
-            'priority'       => $priority,
-            'position'       => $lastPosition + 1,
-            'status'         => 'waiting',
-            'notes'          => $lateCategory === 'severe'
-                ? "Late arrival — {$lateMinutes} min late"
-                : null,
-        ]);
+        // Notify dentist that patient is in queue
+        \App\Services\NotificationService::patientCheckedIn($appointment, $queueItem->position);
 
         $messageParts = ["Patient checked in successfully (Active card verified)"];
 

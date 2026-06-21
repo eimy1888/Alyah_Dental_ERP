@@ -9,6 +9,10 @@ use App\Models\Expense;
 use App\Models\Patient;
 use App\Models\Appointment;
 use App\Models\InventoryItem;
+use App\Models\LabOrder;
+use App\Models\Procedure;
+use App\Models\Recall;
+use App\Models\TreatmentPlan;
 use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,12 +98,15 @@ class ReportsController extends Controller
                 'description'    => 'Outstanding balances, write-offs, and payment plans by patient.',
                 'last_generated' => $now->subDays(2)->format('d M Y'),
                 'status'         => Invoice::forClinic($clinicId)
+                    ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                     ->where('status', 'overdue')->exists()
                     ? 'needs_attention' : 'ready',
                 'meta'           => [
                     'overdue_invoices' => Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->where('status', 'overdue')->count(),
                     'total_outstanding'=> (float) Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->whereIn('status', ['sent', 'partial', 'overdue'])
                         ->sum('balance'),
                 ],
@@ -182,6 +189,7 @@ class ReportsController extends Controller
                         ->whereBetween('expense_date', [$monthStart, $monthEnd])
                         ->sum('amount'),
                     'total_invoices' => Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->whereBetween('issued_at', [$monthStart, $monthEnd])
                         ->count(),
                 ],
@@ -240,14 +248,18 @@ class ReportsController extends Controller
                 'generated' => $now->format('d M Y H:i'),
                 'summary'   => [
                     'total_outstanding' => (float) Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->whereIn('status', ['sent', 'partial', 'overdue'])
                         ->sum('balance'),
                     'overdue_count'     => Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->where('status', 'overdue')->count(),
                     'partial_count'     => Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                         ->where('status', 'partial')->count(),
                 ],
                 'invoices' => Invoice::forClinic($clinicId)
+                    ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                     ->whereIn('status', ['sent', 'partial', 'overdue'])
                     ->with('patient:id,first_name,last_name')
                     ->orderByDesc('balance')
@@ -320,6 +332,64 @@ class ReportsController extends Controller
             'success' => true,
             'message' => "Report '{$data['report']}' generated successfully.",
             'data'    => $data,
+        ]);
+    }
+
+    public function operationalSummary(Request $request): JsonResponse
+    {
+        $clinicId = $this->clinicId();
+        $from = $request->get('from', now()->startOfMonth()->toDateString());
+        $to = $request->get('to', now()->endOfMonth()->toDateString());
+        $branchId = $request->get('branch_id');
+        $dentistId = $request->get('dentist_id');
+
+        $appointments = Appointment::forClinic($clinicId)
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->when($dentistId, fn($q) => $q->where('dentist_id', $dentistId))
+            ->whereBetween('appointment_time', [$from . ' 00:00:00', $to . ' 23:59:59']);
+
+        $payments = Payment::forClinic($clinicId)
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->where('status', 'completed')
+            ->whereBetween('paid_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+
+        $invoices = Invoice::forClinic($clinicId)
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT);
+
+        $procedures = Procedure::forClinic($clinicId)
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->when($dentistId, fn($q) => $q->where('dentist_id', $dentistId))
+            ->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'period' => compact('from', 'to', 'branchId', 'dentistId'),
+                'revenue' => [
+                    'payments_collected' => (float) (clone $payments)->sum('amount'),
+                    'payment_count' => (clone $payments)->count(),
+                    'outstanding_invoices' => (clone $invoices)->whereIn('status', ['sent', 'partial', 'overdue'])->count(),
+                    'outstanding_balance' => (float) (clone $invoices)->whereIn('status', ['sent', 'partial', 'overdue'])->sum('balance'),
+                ],
+                'appointments' => [
+                    'total' => (clone $appointments)->count(),
+                    'completed' => (clone $appointments)->where('status', 'completed')->count(),
+                    'no_shows' => (clone $appointments)->where('status', 'no_show')->count(),
+                    'cancelled' => (clone $appointments)->where('status', 'cancelled')->count(),
+                ],
+                'clinical' => [
+                    'procedures' => (clone $procedures)->count(),
+                    'treatment_volume' => (float) (clone $procedures)->sum('price'),
+                    'lab_orders' => LabOrder::forClinic($clinicId)->when($branchId, fn($q) => $q->where('branch_id', $branchId))->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])->count(),
+                    'treatment_plans' => TreatmentPlan::forClinic($clinicId)->when($branchId, fn($q) => $q->where('branch_id', $branchId))->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])->count(),
+                    'recalls_due' => Recall::forClinic($clinicId)->when($branchId, fn($q) => $q->where('branch_id', $branchId))->whereBetween('due_date', [$from, $to])->count(),
+                ],
+                'inventory' => [
+                    'low_stock' => InventoryItem::forClinic($clinicId)->when($branchId, fn($q) => $q->where('branch_id', $branchId))->lowStock()->count(),
+                    'expiring_soon' => InventoryItem::forClinic($clinicId)->when($branchId, fn($q) => $q->where('branch_id', $branchId))->expiringWithin(90)->count(),
+                ],
+            ],
         ]);
     }
 }

@@ -30,10 +30,10 @@ class RegisterClinicRequest extends FormRequest
 
             // Plan & billing
             'plan_id'        => ['required', 'integer', 'exists:plans,id'],
-            'billing_cycle'  => ['required', 'in:monthly,annual'],
+            'billing_cycle'  => ['required', 'in:monthly,annual,trial'],
 
-            // Payment intent (not yet paid — payment happens in step 2)
-            'payment_method' => ['required', 'in:telebirr,chapa,paypal,bank_transfer'],
+            // Payment intent — 'none' is valid for free plans (no payment step)
+            'payment_method' => ['required', 'in:telebirr,chapa,paypal,bank_transfer,none'],
         ];
     }
 

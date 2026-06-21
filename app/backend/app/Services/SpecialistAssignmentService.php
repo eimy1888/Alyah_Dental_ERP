@@ -193,7 +193,7 @@ class SpecialistAssignmentService
                     ->whereNotIn('status', ['cancelled', 'no_show'])
                     ->where(function ($q) use ($candidate) {
                         $q->where('appointment_time', '<', $candidate->copy()->addMinutes(60))
-                          ->whereRaw("DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?", [$candidate]);
+                          ->whereRaw(\App\Helpers\DbHelper::appointmentEndGt(), [$candidate]);
                     })->exists();
 
                 if (!$hasOverlap) return $candidate;

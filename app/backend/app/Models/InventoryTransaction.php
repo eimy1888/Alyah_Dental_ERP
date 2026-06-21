@@ -14,6 +14,7 @@ class InventoryTransaction extends Model
         'clinic_id',
         'branch_id',
         'inventory_item_id',
+        'procedure_id',
         'performed_by',
         'type',
         'quantity_change',
@@ -45,6 +46,11 @@ class InventoryTransaction extends Model
     public function inventoryItem(): BelongsTo
     {
         return $this->belongsTo(InventoryItem::class);
+    }
+
+    public function procedure(): BelongsTo
+    {
+        return $this->belongsTo(Procedure::class);
     }
 
     public function performedBy(): BelongsTo

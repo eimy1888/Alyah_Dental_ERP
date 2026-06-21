@@ -1,15 +1,25 @@
-import { ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 
-const billingLabels  = { monthly: 'Monthly billing', annual: 'Annual billing' };
-const paymentLabels  = { telebirr: 'Telebirr', chapa: 'Chapa', paypal: 'PayPal', bank_transfer: 'Bank Transfer' };
+const billingLabels  = { monthly: 'Monthly billing', annual: 'Annual billing', trial: '14-day free trial' };
+const paymentLabels  = { telebirr: 'Telebirr', chapa: 'Chapa', paypal: 'PayPal', bank_transfer: 'Bank Transfer', none: 'No payment (free trial)' };
 
 export default function StepReview({ data, onSubmit, onBack, isSubmitting, submitError }) {
-  // We show plan name from the stored plan object if available, else planId
-  const planName    = data.planName  || data.planId || '—';
-  const planPrice   = data.planPrice || '—';
+  const planName  = data.planName  || data.planId || '—';
+  const planPrice = data.planPrice || 0;
+  const isFree    = data.isFree === true || data.planType === 'free';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+
+      {/* Trial confirmation — only for free plan */}
+      {isFree && (
+        <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3">
+          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+          <p className="text-sm text-emerald-700 font-medium">
+            <span className="font-black">14-day free trial</span> — your clinic gets full access for 14 days after platform approval, then auto-suspends.
+          </p>
+        </div>
+      )}
 
       {/* Summary grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -29,16 +39,21 @@ export default function StepReview({ data, onSubmit, onBack, isSubmitting, submi
           {data.branchName && <p className="text-sm text-gray-500">{data.branchName}</p>}
         </div>
 
-        <div className="rounded-2xl border border-gray-100 p-5 bg-white">
+        <div className={`rounded-2xl border p-5 ${isFree ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-gray-100'}`}>
           <p className="text-xs font-bold tracking-widest text-gray-400 uppercase mb-3">Subscription</p>
           <p className="text-base font-semibold text-gray-900">{planName}</p>
-          <p className="text-sm text-gray-500">
-            {billingLabels[data.billing] || data.billing}
-            {planPrice !== '—' ? ` · $${planPrice}` : ''}
+          <p className="text-sm font-semibold" style={{ color: isFree ? '#16a34a' : '#2563eb' }}>
+            {isFree ? '14-day free trial · auto-suspends after' : (billingLabels[data.billing] || data.billing)}
           </p>
-          <p className="text-sm text-gray-500">
-            Payment: {paymentLabels[data.paymentMethod] || data.paymentMethod}
-          </p>
+          {!isFree && (
+            <p className="text-sm text-gray-500 mt-1">
+              ETB {Number(planPrice).toLocaleString()}/mo ·{' '}
+              {paymentLabels[data.paymentMethod] || data.paymentMethod}
+            </p>
+          )}
+          {isFree && (
+            <p className="text-sm text-gray-500 mt-1">No credit card required</p>
+          )}
         </div>
 
         <div className="rounded-2xl border border-gray-100 p-5 bg-white">
@@ -56,7 +71,8 @@ export default function StepReview({ data, onSubmit, onBack, isSubmitting, submi
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
         <p className="text-xs font-bold tracking-widest text-amber-600 uppercase mb-2">Approval Note</p>
         <p className="text-sm text-amber-700 leading-relaxed">
-          Once submitted, the clinic enters pending platform approval. Workspace access and public showcase remain locked until a platform admin reviews and approves the registration.
+          Once submitted, the clinic enters pending platform approval. Workspace access remains locked until a platform admin reviews and approves the registration.
+          {isFree && ' Your 14-day trial begins from the approval date and suspends automatically when it expires.'}
         </p>
       </div>
 
@@ -79,11 +95,12 @@ export default function StepReview({ data, onSubmit, onBack, isSubmitting, submi
         <button
           onClick={onSubmit}
           disabled={isSubmitting}
-          className="px-8 py-3 rounded-xl bg-[#1F4E79] text-white font-semibold text-sm hover:bg-blue-900 transition-all duration-200 flex items-center gap-2 disabled:opacity-60"
+          className="px-8 py-3 rounded-xl text-white font-semibold text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-60"
+          style={{ background: isFree ? '#16a34a' : '#1F4E79' }}
         >
           {isSubmitting
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting...</>
-            : <><ShieldCheck className="w-4 h-4" /> Submit for Approval</>
+            : <><ShieldCheck className="w-4 h-4" /> {isFree ? 'Start Free Trial' : 'Submit for Approval'}</>
           }
         </button>
       </div>

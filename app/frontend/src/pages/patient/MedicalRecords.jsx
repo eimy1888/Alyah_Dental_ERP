@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
-  FileText, Pill, Activity, Receipt, CreditCard, 
-  Eye, X, Calendar, Filter, ChevronDown, File
+  FileText, Pill, Activity, Receipt, CreditCard,
+  Eye, X, Calendar, Filter, ChevronDown, File, FlaskConical, Stethoscope
 } from 'lucide-react';
 import { getMedicalRecords, getMedicalRecordDetail } from '../../services/patientService';
 
@@ -11,6 +11,9 @@ const recordIcons = {
   xray: <Activity className="w-5 h-5" />,
   invoice: <Receipt className="w-5 h-5" />,
   payment: <CreditCard className="w-5 h-5" />,
+  appointment: <Calendar className="w-5 h-5" />,
+  procedure: <Stethoscope className="w-5 h-5" />,
+  lab_order: <FlaskConical className="w-5 h-5" />,
 };
 
 const recordColors = {
@@ -19,6 +22,9 @@ const recordColors = {
   xray: 'bg-purple-100 text-purple-600',
   invoice: 'bg-green-100 text-green-600',
   payment: 'bg-emerald-100 text-emerald-600',
+  appointment: 'bg-sky-100 text-sky-600',
+  procedure: 'bg-indigo-100 text-indigo-600',
+  lab_order: 'bg-violet-100 text-violet-600',
 };
 
 const recordLabels = {
@@ -27,6 +33,9 @@ const recordLabels = {
   xray: 'X-Ray',
   invoice: 'Invoice',
   payment: 'Payment',
+  appointment: 'Appointment',
+  procedure: 'Procedure',
+  lab_order: 'Lab Order',
 };
 
 const RECORD_TYPES = [
@@ -34,13 +43,16 @@ const RECORD_TYPES = [
   { value: 'prescription', label: 'Prescriptions' },
   { value: 'clinical_note', label: 'Clinical Notes' },
   { value: 'xray', label: 'X-Rays' },
+  { value: 'appointment', label: 'Appointments' },
+  { value: 'procedure', label: 'Procedures' },
+  { value: 'lab_order', label: 'Lab Orders' },
   { value: 'invoice', label: 'Invoices' },
   { value: 'payment', label: 'Payments' },
 ];
 
 export default function PatientMedicalRecords() {
   const [records, setRecords] = useState([]);
-  const [summary, setSummary] = useState({ total: 0, prescriptions: 0, clinical_notes: 0, xrays: 0, invoices: 0, payments: 0 });
+  const [summary, setSummary] = useState({ total: 0, prescriptions: 0, clinical_notes: 0, xrays: 0, appointments: 0, procedures: 0, lab_orders: 0, invoices: 0, payments: 0 });
   const [loading, setLoading] = useState(true);
   const [recordType, setRecordType] = useState('all');
   const [fromDate, setFromDate] = useState('');
@@ -64,7 +76,7 @@ export default function PatientMedicalRecords() {
       
       const data = await getMedicalRecords(params);
       setRecords(data.records || []);
-      setSummary(data.summary || { total: 0, prescriptions: 0, clinical_notes: 0, xrays: 0, invoices: 0, payments: 0 });
+      setSummary(data.summary || { total: 0, prescriptions: 0, clinical_notes: 0, xrays: 0, appointments: 0, procedures: 0, lab_orders: 0, invoices: 0, payments: 0 });
     } catch (error) {
       console.error('Failed to load medical records:', error);
       showToastMessage('Failed to load medical records', 'error');

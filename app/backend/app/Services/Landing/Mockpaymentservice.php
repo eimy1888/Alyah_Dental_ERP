@@ -48,6 +48,11 @@ class MockPaymentService
             throw new \Exception('No pending subscription found for this clinic.');
         }
 
+        // Guard: free plan subscriptions don't go through payment
+        if ($subscription->plan && $subscription->plan->isFree()) {
+            throw new \Exception('Free trial plans do not require payment processing.');
+        }
+
         return DB::transaction(function () use ($clinic, $subscription, $data) {
 
             $startsAt = Carbon::now();

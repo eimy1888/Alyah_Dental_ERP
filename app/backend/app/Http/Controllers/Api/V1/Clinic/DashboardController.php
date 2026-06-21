@@ -74,8 +74,9 @@ class DashboardController extends Controller
             ];
         }
 
-        // ── Financial exposure ────────────────────────────────────────────────
+        // ── Financial exposure — excludes DRAFT (unreleased invoices) ──────────
         $financialExposure = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->whereIn('status', ['sent', 'partial', 'overdue'])
             ->with('patient:id,first_name,last_name')
             ->orderByDesc('balance')
@@ -100,8 +101,9 @@ class DashboardController extends Controller
                 ];
             });
 
-        // ── Recent invoices ───────────────────────────────────────────────────
+        // ── Recent invoices — excludes DRAFT ─────────────────────────────────
         $recentInvoices = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->with(['patient:id,first_name,last_name', 'branch:id,name'])
             ->orderByDesc('created_at')
             ->limit(5)
@@ -124,12 +126,14 @@ class DashboardController extends Controller
             ->limit(3)
             ->get(['name', 'current_quantity', 'reorder_threshold']);
 
-        // ── Outstanding + overdue ─────────────────────────────────────────────
+        // ── Outstanding + overdue — excludes DRAFT ───────────────────────────
         $outstanding = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->whereIn('status', ['sent', 'partial', 'overdue'])
             ->sum('balance');
 
         $overdueCount = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->where('status', 'overdue')
             ->count();
 

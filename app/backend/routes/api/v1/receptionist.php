@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Receptionist\BillingController;
 use App\Http\Controllers\Api\V1\Receptionist\InvoicePdfController;
 use App\Http\Controllers\Api\V1\Receptionist\SettingController;
 use App\Http\Controllers\Api\V1\Receptionist\WaitlistController;
+use App\Http\Controllers\Api\V1\Receptionist\NotificationController;
 use App\Http\Controllers\Api\V1\QueueController;
 
 Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('receptionist')->group(function () {
@@ -57,7 +58,10 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('receptionist')->
     Route::post('waitlist/{id}/call',     [WaitlistController::class, 'call']);
 
     // ── Notifications ─────────────────────────────────────────────────────────
-    Route::get('notifications/count', [SettingController::class, 'getNotificationCount']);
+    Route::get('notifications',              [NotificationController::class, 'index']);
+    Route::get('notifications/count',        [NotificationController::class, 'count']);
+    Route::put('notifications/read-all',     [NotificationController::class, 'markAllRead']);
+    Route::put('notifications/{id}/read',    [NotificationController::class, 'markRead']);
 
     // ── Settings ──────────────────────────────────────────────────────────────
     Route::prefix('settings')->group(function () {

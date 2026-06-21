@@ -29,6 +29,7 @@ class BillingController extends Controller
         $clinicId = $this->clinicId();
 
         $invoices = Invoice::forClinic($clinicId)
+            ->whereNotIn('lifecycle_status', [Invoice::STATUS_DRAFT])
             ->with('patient:id,first_name,last_name', 'branch:id,name')
             ->when($search, fn($q) =>
                 $q->where('invoice_number', 'like', "%{$search}%")
@@ -68,6 +69,11 @@ class BillingController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found.'], 404);
         }
 
+        // Clinic admin cannot view DRAFT invoices (still with dentist)
+        if ($invoice->lifecycle_status === Invoice::STATUS_DRAFT) {
+            return response()->json(['success' => false, 'message' => 'Not found.'], 404);
+        }
+
         return response()->json([
             'success' => true,
             'data'    => $invoice->load(['patient', 'branch:id,name', 'items', 'payments']),
@@ -94,18 +100,20 @@ class BillingController extends Controller
             $clinicId = $this->clinicId();
 
             $invoice = Invoice::create([
-                'clinic_id'      => $clinicId,
-                'branch_id'      => $validated['branch_id'] ?? null,
-                'patient_id'     => $validated['patient_id'],
-                'created_by'     => $request->user()->id,
-                'invoice_number' => Invoice::generateNumber($clinicId),
-                'due_date'       => $validated['due_date'] ?? null,
-                'notes'          => $validated['notes'] ?? null,
-                'issued_at'      => today(),
-                'status'         => 'sent',
-                'total'          => 0,
-                'paid'           => 0,
-                'balance'        => 0,
+                'clinic_id'        => $clinicId,
+                'branch_id'        => $validated['branch_id'] ?? null,
+                'patient_id'       => $validated['patient_id'],
+                'created_by'       => $request->user()->id,
+                'invoice_number'   => Invoice::generateNumber($clinicId),
+                'invoice_type'     => Invoice::TYPE_SERVICE,
+                'lifecycle_status' => Invoice::STATUS_UNPAID,
+                'due_date'         => $validated['due_date'] ?? null,
+                'notes'            => $validated['notes'] ?? null,
+                'issued_at'        => today(),
+                'status'           => 'sent',
+                'total'            => 0,
+                'paid'             => 0,
+                'balance'          => 0,
             ]);
 
             foreach ($validated['items'] as $item) {
@@ -124,7 +132,7 @@ class BillingController extends Controller
 
     /**
      * POST /api/v1/clinic/billing/invoices/{invoice}/pay
-     * Record a payment against an invoice.
+     * Record a payment against an invoice — enforces full payment rule.
      */
     public function recordPayment(Request $request, Invoice $invoice): JsonResponse
     {
@@ -132,39 +140,43 @@ class BillingController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found.'], 404);
         }
 
-        $validated = $request->validate([
+        // Cannot pay DRAFT invoices
+        if ($invoice->lifecycle_status === Invoice::STATUS_DRAFT) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invoice is still in draft. Dentist must complete the checkup first.',
+                'code'    => 'INVOICE_DRAFT',
+            ], 422);
+        }
+
+        $request->validate([
             'amount'    => 'required|numeric|min:0.01',
             'method'    => 'required|in:cash,telebirr,chapa,bank_transfer,insurance',
             'reference' => 'nullable|string|max:100',
-            'notes'     => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($validated, $invoice, $request) {
-            $payment = Payment::create([
-                'clinic_id'    => $this->clinicId(),
-                'branch_id'    => $invoice->branch_id,
-                'invoice_id'   => $invoice->id,
-                'patient_id'   => $invoice->patient_id,
-                'collected_by' => $request->user()->id,
-                'amount'       => $validated['amount'],
-                'method'       => $validated['method'],
-                'reference'    => $validated['reference'] ?? null,
-                'notes'        => $validated['notes'] ?? null,
-                'status'       => 'completed',
-                'paid_at'      => now(),
-            ]);
+        // Route through recordFullPayment — atomic, enforces no-partial rule
+        $result = $invoice->recordFullPayment(
+            (float) $request->amount,
+            $request->method,
+            $request->user(),
+            $request->reference ?? ''
+        );
 
-            $invoice->recalculate();
+        if (!$result['success']) {
+            return response()->json($result, 422);
+        }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Payment recorded.',
-                'data'    => [
-                    'payment' => $payment,
-                    'invoice' => $invoice->fresh(),
-                ],
-            ]);
-        });
+        $invoice->refresh();
+
+        // Fire invoice paid notification (patient email + dentist DB)
+        \App\Services\NotificationService::invoicePaid($invoice);
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => ['invoice' => $invoice->fresh()],
+        ]);
     }
 
     // ── Recent payments ───────────────────────────────────────────────────────

@@ -13,9 +13,12 @@ class LabOrder extends Model
 
     // ── Status constants ──────────────────────────────────────────────────────
     const STATUS_PENDING    = 'pending';
+    const STATUS_CREATED    = 'pending';
+    const STATUS_ACCEPTED   = 'sent_to_lab';
     const STATUS_SENT_TO_LAB = 'sent_to_lab';
     const STATUS_IN_PROGRESS = 'in_progress';
     const STATUS_READY      = 'ready';
+    const STATUS_COMPLETED  = 'ready';
     const STATUS_DELIVERED  = 'delivered';
     const STATUS_CANCELLED  = 'cancelled';
 
@@ -42,17 +45,24 @@ class LabOrder extends Model
         'material',
         'tooth_numbers',
         'instructions',
+        'attachments',
         'status',
         'expected_ready_date',
         'actual_ready_date',
         'fitting_appointment_id',
         'notes',
+        'lab_notes',
+        'delivered_at',
+        'dentist_acknowledged_at',
     ];
 
     protected $casts = [
         'tooth_numbers'       => 'array',
+        'attachments'         => 'array',
         'expected_ready_date' => 'date',
         'actual_ready_date'   => 'date',
+        'delivered_at'        => 'datetime',
+        'dentist_acknowledged_at' => 'datetime',
     ];
 
     // ── Relationships ──────────────────────────────────────────────────────────
@@ -145,5 +155,18 @@ class LabOrder extends Model
             'status'            => self::STATUS_READY,
             'actual_ready_date' => Carbon::now()->toDateString(),
         ]);
+    }
+
+    public function markDelivered(): void
+    {
+        $this->update([
+            'status' => self::STATUS_DELIVERED,
+            'delivered_at' => now(),
+        ]);
+    }
+
+    public function acknowledgeByDentist(): void
+    {
+        $this->update(['dentist_acknowledged_at' => now()]);
     }
 }

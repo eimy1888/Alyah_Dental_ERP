@@ -97,6 +97,18 @@ public function store(Request $request): JsonResponse
     // Auto-generate temp password
     $tempPassword = \Illuminate\Support\Str::random(10);
 
+    // ── Enforce plan user limit ───────────────────────────────────────────────
+    $clinic       = \App\Models\Clinic::with('plan')->find($clinicId);
+    $currentUsers = User::where('clinic_id', $clinicId)->count();
+    $maxUsers     = $clinic?->plan?->max_users ?? PHP_INT_MAX;
+    if ($currentUsers >= $maxUsers) {
+        return response()->json([
+            'success' => false,
+            'message' => "Your plan allows a maximum of {$maxUsers} users. Please upgrade to add more staff.",
+            'code'    => 'PLAN_LIMIT_USERS',
+        ], 422);
+    }
+
     // 1. Create user account
     // Use submitted branch_id if valid, otherwise fallback to manager's branch_id
     $targetBranchId = $submittedBranchId ?? $branchId;

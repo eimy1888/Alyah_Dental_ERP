@@ -97,19 +97,83 @@ class ReportController extends Controller
         ]);
     }
 
-    // Download report (stub)
+    // Download report — returns JSON data for frontend to render/export
     public function downloadReport(Request $request, int $id): JsonResponse
     {
         $accountant = $request->user();
-        $clinicId = $accountant->clinic_id;
+        $clinicId   = $accountant->clinic_id;
 
         $report = Report::forClinic($clinicId)->findOrFail($id);
 
-        // In production: return file download
+        // Build report data on-the-fly based on type and stored parameters
+        $params    = $report->parameters ?? [];
+        $startDate = $params['from_date'] ?? now()->startOfMonth()->toDateString();
+        $endDate   = $params['to_date']   ?? now()->endOfMonth()->toDateString();
+
+        $data = match ($report->type) {
+            'revenue_performance' => [
+                'title'    => 'Revenue Performance',
+                'period'   => $startDate . ' to ' . $endDate,
+                'summary'  => [
+                    'total_collected' => (float) Payment::forClinic($clinicId)
+                        ->whereBetween('paid_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                        ->where('status', 'completed')->sum('amount'),
+                    'total_invoiced' => (float) Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
+                        ->whereBetween('issued_at', [$startDate, $endDate])->sum('total'),
+                    'outstanding' => (float) Invoice::forClinic($clinicId)
+                        ->where('lifecycle_status', Invoice::STATUS_UNPAID)
+                        ->sum('balance'),
+                ],
+                'payments' => Payment::forClinic($clinicId)
+                    ->whereBetween('paid_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                    ->where('status', 'completed')
+                    ->with(['patient', 'invoice'])
+                    ->orderByDesc('paid_at')
+                    ->limit(200)
+                    ->get()
+                    ->map(fn($p) => [
+                        'date'           => $p->paid_at?->format('d M Y'),
+                        'patient'        => $p->patient?->full_name ?? '—',
+                        'method'         => ucfirst($p->method ?? '—'),
+                        'invoice_number' => $p->invoice?->invoice_number ?? '—',
+                        'amount'         => (float) $p->amount,
+                    ]),
+            ],
+            'accounts_receivable' => [
+                'title'    => 'Accounts Receivable',
+                'generated_at' => now()->format('d M Y H:i'),
+                'invoices' => Invoice::forClinic($clinicId)
+                    ->where('lifecycle_status', Invoice::STATUS_UNPAID)
+                    ->with(['patient', 'branch'])
+                    ->orderByDesc('balance')
+                    ->limit(200)
+                    ->get()
+                    ->map(fn($i) => [
+                        'invoice_number' => $i->invoice_number,
+                        'patient'        => $i->patient?->full_name ?? '—',
+                        'branch'         => $i->branch?->name ?? '—',
+                        'total'          => (float) $i->total,
+                        'balance'        => (float) $i->balance,
+                        'due_date'       => $i->due_date?->format('d M Y') ?? '—',
+                        'days_overdue'   => $i->due_date?->isPast() ? $i->due_date->diffInDays(now()) : 0,
+                    ]),
+            ],
+            default => [
+                'title'       => ucwords(str_replace('_', ' ', $report->type)),
+                'generated_at'=> $report->generated_at?->format('d M Y H:i'),
+                'parameters'  => $params,
+                'message'     => 'Report data is available.',
+            ],
+        };
+
         return response()->json([
             'success' => true,
-            'message' => 'Download will start shortly.',
-            'data' => ['file_url' => $report->file_url],
+            'data'    => array_merge($data, [
+                'report_id'    => $report->id,
+                'type'         => $report->type,
+                'generated_at' => $report->generated_at?->toDateTimeString(),
+            ]),
         ]);
     }
 

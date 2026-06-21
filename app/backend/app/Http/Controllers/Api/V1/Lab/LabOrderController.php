@@ -91,7 +91,7 @@ class LabOrderController extends Controller
                 : "[{$timestamp}] " . $request->notes;
         }
 
-        // When status = ready: set actual_ready_date
+        // When status = ready: set actual_ready_date and notify dentist
         if ($newStatus === LabOrder::STATUS_READY) {
             $updateData['actual_ready_date'] = Carbon::now()->toDateString();
 
@@ -100,28 +100,20 @@ class LabOrderController extends Controller
                 $fittingAppt = $this->createFittingAppointment($order, $user);
                 if ($fittingAppt) {
                     $updateData['fitting_appointment_id'] = $fittingAppt->id;
-
-                    // Notify the fitting specialist
-                    \App\Models\User::find($order->fitting_specialist_id)?->notify(
-                        new \Illuminate\Notifications\DatabaseNotification()
-                    );
-
-                    // Store notification manually via DB
-                    \DB::table('notifications')->insert([
-                        'id'              => \Illuminate\Support\Str::uuid(),
-                        'type'            => 'lab_order_ready',
-                        'notifiable_type' => \App\Models\User::class,
-                        'notifiable_id'   => $order->fitting_specialist_id,
-                        'data'            => json_encode([
-                            'title'   => 'Lab Order Ready',
-                            'message' => "Lab order {$order->lab_order_number} is ready. Fitting appointment scheduled.",
-                            'order_id' => $order->id,
-                        ]),
-                        'created_at'      => now(),
-                        'updated_at'      => now(),
-                    ]);
                 }
             }
+
+            $order->update($updateData);
+            $order->refresh();
+
+            // Notify ordering dentist + fitting specialist
+            \App\Services\NotificationService::labOrderReady($order);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Status updated successfully.',
+                'data'    => $this->formatOrder($order),
+            ]);
         }
 
         $order->update($updateData);

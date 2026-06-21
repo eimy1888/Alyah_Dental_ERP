@@ -24,6 +24,8 @@ class User extends Authenticatable
         'password',
         'role',
         'is_active',
+        'must_change_password',
+        'notification_preferences',
         'email_verified_at',
     ];
 
@@ -36,6 +38,8 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password'          => 'hashed',
         'is_active'         => 'boolean',
+        'must_change_password' => 'boolean',
+        'notification_preferences' => 'array',
     ];
 
     // ── Relationships ─────────────────────────────────────────────────────────
@@ -83,6 +87,14 @@ class User extends Authenticatable
     return $this->hasOne(Patient::class, 'user_id');
 }
     
+
+    /**
+     * Override the default password reset notification with DentFlow branding.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new \App\Notifications\ResetPasswordNotification($token));
+    }
 
     // ── Role helpers ──────────────────────────────────────────────────────────
 

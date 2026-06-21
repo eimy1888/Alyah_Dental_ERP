@@ -37,12 +37,14 @@ class DashboardController extends Controller
             ? round((($collectedToday - $collectedYesterday) / $collectedYesterday) * 100, 1)
             : 0;
 
-        // ── 2. Outstanding AR ─────────────────────────────
+        // ── 2. Outstanding AR — excludes DRAFT (not yet released to accountant) ─
         $outstandingAR = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->whereIn('status', ['sent', 'partial', 'overdue'])
-            ->sum('balance');                              // ← was balance_due
+            ->sum('balance');
 
         $overdueCount = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->where('status', 'overdue')
             ->count();
 
@@ -98,8 +100,9 @@ class DashboardController extends Controller
             ];
         }
 
-        // ── 7. Invoice ledger (recent 8) ──────────────────
+        // ── 7. Invoice ledger (recent 8) — excludes DRAFT ────────────────────
         $invoiceLedger = Invoice::where('clinic_id', $clinicId)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->whereIn('status', ['sent', 'partial', 'overdue', 'paid'])
             ->with('patient')
             ->orderByDesc('issued_at')

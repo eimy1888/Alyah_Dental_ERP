@@ -44,9 +44,10 @@ class RevenueController extends Controller
                 ->where('status', 'completed')
                 ->sum('amount');
 
-            // Pending (outstanding invoices)
+            // Pending (outstanding invoices — excludes DRAFT)
             $pending = Invoice::forClinic($clinicId)
                 ->where('branch_id', $branch->id)
+                ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
                 ->whereIn('status', ['sent', 'partial'])
                 ->sum('balance');
 
@@ -194,10 +195,54 @@ class RevenueController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function export(Request $request): JsonResponse
     {
-        // For MVP - toast notification that export is ready
+        $accountant = $request->user();
+        $clinicId   = $accountant->clinic_id;
+        $branchId   = $request->get('branch_id');
+        $period     = $request->get('period', 'monthly');
+        $year       = (int) $request->get('year', now()->year);
+        $month      = (int) $request->get('month', now()->month);
+
+        // Collect revenue data for export
+        $query = Payment::forClinic($clinicId)
+            ->where('status', 'completed')
+            ->with(['patient', 'invoice']);
+
+        if ($branchId) $query->where('branch_id', $branchId);
+
+        if ($period === 'monthly') {
+            $query->whereYear('paid_at', $year)->whereMonth('paid_at', $month);
+        } else {
+            $query->whereYear('paid_at', $year);
+        }
+
+        $payments = $query->orderByDesc('paid_at')->get();
+
+        $rows   = [];
+        $rows[] = ['Date', 'Patient', 'Method', 'Reference', 'Invoice #', 'Amount (ETB)'];
+
+        foreach ($payments as $p) {
+            $rows[] = [
+                $p->paid_at?->format('d M Y'),
+                $p->patient?->full_name ?? '—',
+                ucfirst($p->method ?? '—'),
+                $p->reference ?? '—',
+                $p->invoice?->invoice_number ?? '—',
+                number_format((float) $p->amount, 2),
+            ];
+        }
+
+        $rows[] = ['', '', '', '', 'TOTAL', number_format($payments->sum('amount'), 2)];
+
         return response()->json([
             'success' => true,
-            'message' => 'Export is being generated. Download will be ready shortly.',
+            'message' => 'Revenue export ready.',
+            'data'    => [
+                'headers'       => $rows[0],
+                'rows'          => array_slice($rows, 1),
+                'total_records' => $payments->count(),
+                'total_amount'  => (float) $payments->sum('amount'),
+                'period'        => $period === 'monthly' ? now()->setYear($year)->setMonth($month)->format('F Y') : $year,
+            ],
         ]);
     }
 }

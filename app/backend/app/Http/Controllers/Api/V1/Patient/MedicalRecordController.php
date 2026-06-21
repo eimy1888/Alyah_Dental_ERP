@@ -10,6 +10,9 @@ use App\Models\ClinicalNote;
 use App\Models\XRay;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Appointment;
+use App\Models\Procedure;
+use App\Models\LabOrder;
 use Carbon\Carbon;
 
 class MedicalRecordController extends Controller
@@ -55,6 +58,9 @@ class MedicalRecordController extends Controller
                         'prescriptions' => 0,
                         'clinical_notes' => 0,
                         'xrays' => 0,
+                        'appointments' => 0,
+                        'procedures' => 0,
+                        'lab_orders' => 0,
                         'invoices' => 0,
                         'payments' => 0,
                     ],
@@ -68,6 +74,50 @@ class MedicalRecordController extends Controller
         $toDate = $request->get('to_date');
         
         $records = collect();
+
+        if (!$type || $type === 'appointment') {
+            $query = Appointment::where('patient_id', $patientId);
+            if ($fromDate) $query->whereDate('appointment_time', '>=', $fromDate);
+            if ($toDate) $query->whereDate('appointment_time', '<=', $toDate);
+
+            $query->orderByDesc('appointment_time')->get()->each(fn($a) =>
+                $records->push([
+                    'id' => $a->id,
+                    'type' => 'appointment',
+                    'date' => $a->appointment_time->toDateString(),
+                    'title' => 'Appointment: ' . $a->type,
+                    'description' => ucfirst($a->status),
+                    'details' => [
+                        'status' => $a->status,
+                        'time' => $a->appointment_time->format('H:i'),
+                        'duration_minutes' => $a->duration_minutes,
+                        'notes' => $a->notes,
+                    ],
+                ])
+            );
+        }
+
+        if (!$type || $type === 'procedure') {
+            $query = Procedure::where('patient_id', $patientId);
+            if ($fromDate) $query->whereDate('created_at', '>=', $fromDate);
+            if ($toDate) $query->whereDate('created_at', '<=', $toDate);
+
+            $query->orderByDesc('created_at')->get()->each(fn($p) =>
+                $records->push([
+                    'id' => $p->id,
+                    'type' => 'procedure',
+                    'date' => $p->created_at->toDateString(),
+                    'title' => $p->name,
+                    'description' => ucfirst($p->status ?? 'recorded'),
+                    'details' => [
+                        'tooth_number' => $p->tooth_number,
+                        'price' => $p->price,
+                        'status' => $p->status,
+                        'notes' => $p->notes,
+                    ],
+                ])
+            );
+        }
 
         // ── Prescriptions ────────────────────────────────────────────────
         if (!$type || $type === 'prescription') {
@@ -142,9 +192,10 @@ class MedicalRecordController extends Controller
             );
         }
 
-        // ── Invoices ─────────────────────────────────────────────────────
+        // ── Invoices — excludes DRAFT (patient only sees released invoices) ──
         if (!$type || $type === 'invoice') {
-            $query = Invoice::where('patient_id', $patientId);
+            $query = Invoice::where('patient_id', $patientId)
+                ->whereNotIn('lifecycle_status', [\App\Models\Invoice::STATUS_DRAFT]);
             
             if ($fromDate) $query->whereDate('issued_at', '>=', $fromDate);
             if ($toDate) $query->whereDate('issued_at', '<=', $toDate);
@@ -193,6 +244,29 @@ class MedicalRecordController extends Controller
             );
         }
 
+        if (!$type || $type === 'lab_order') {
+            $query = LabOrder::where('patient_id', $patientId);
+            if ($fromDate) $query->whereDate('created_at', '>=', $fromDate);
+            if ($toDate) $query->whereDate('created_at', '<=', $toDate);
+
+            $query->orderByDesc('created_at')->get()->each(fn($o) =>
+                $records->push([
+                    'id' => $o->id,
+                    'type' => 'lab_order',
+                    'date' => $o->created_at->toDateString(),
+                    'title' => 'Lab order ' . $o->lab_order_number,
+                    'description' => ucfirst(str_replace('_', ' ', $o->status)),
+                    'details' => [
+                        'order_type' => $o->order_type,
+                        'material' => $o->material,
+                        'status' => $o->status,
+                        'expected_ready_date' => $o->expected_ready_date?->toDateString(),
+                        'actual_ready_date' => $o->actual_ready_date?->toDateString(),
+                    ],
+                ])
+            );
+        }
+
         // ── Sort by date descending ──────────────────────────────────────
         $sorted = $records->sortByDesc('date')->values();
 
@@ -202,6 +276,9 @@ class MedicalRecordController extends Controller
             'prescriptions' => $sorted->where('type', 'prescription')->count(),
             'clinical_notes' => $sorted->where('type', 'clinical_note')->count(),
             'xrays' => $sorted->where('type', 'xray')->count(),
+            'appointments' => $sorted->where('type', 'appointment')->count(),
+            'procedures' => $sorted->where('type', 'procedure')->count(),
+            'lab_orders' => $sorted->where('type', 'lab_order')->count(),
             'invoices' => $sorted->where('type', 'invoice')->count(),
             'payments' => $sorted->where('type', 'payment')->count(),
         ];
@@ -213,6 +290,83 @@ class MedicalRecordController extends Controller
                 'summary' => $summary,
             ],
         ]);
+    }
+
+    public function prescriptions(Request $request): JsonResponse
+    {
+        $patientId = $this->getPatientId($request->user());
+        if (!$patientId) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $items = Prescription::where('patient_id', $patientId)
+            ->with(['items', 'dentist'])
+            ->orderByDesc('date')
+            ->orderByDesc('issued_at')
+            ->get()
+            ->map(fn($p) => [
+                'id' => $p->id,
+                'date' => ($p->date ?? $p->issued_at)?->toDateString(),
+                'status' => $p->status ?? 'finalized',
+                'notes' => $p->notes,
+                'dentist_name' => $p->dentist?->name,
+                'items' => $p->items->map(fn($item) => [
+                    'drug_name' => $item->drug_name,
+                    'dosage' => $item->dosage,
+                    'frequency' => $item->frequency,
+                    'duration' => $item->duration,
+                    'instructions' => $item->instructions,
+                ])->values(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $items]);
+    }
+
+    public function xrays(Request $request): JsonResponse
+    {
+        $patientId = $this->getPatientId($request->user());
+        if (!$patientId) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $items = XRay::where('patient_id', $patientId)
+            ->orderByDesc('taken_at')
+            ->orderByDesc('captured_at')
+            ->get()
+            ->map(fn($x) => [
+                'id' => $x->id,
+                'description' => $x->description,
+                'taken_at' => $x->taken_at?->toDateTimeString(),
+                'study_type' => $x->study_type,
+                'file_url' => $x->file_url,
+                'findings' => $x->findings,
+                'status' => $x->status,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $items]);
+    }
+
+    public function clinicalNotes(Request $request): JsonResponse
+    {
+        $patientId = $this->getPatientId($request->user());
+        if (!$patientId) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $items = ClinicalNote::where('patient_id', $patientId)
+            ->signed()
+            ->orderByDesc('signed_at')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn($note) => [
+                'id' => $note->id,
+                'title' => $note->title ?? $note->note_type,
+                'note' => $note->note ?? $note->content,
+                'signed_at' => $note->signed_at?->toDateTimeString(),
+                'created_at' => $note->created_at?->toDateTimeString(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $items]);
     }
 
     // ── Show single record detail ────────────────────────────────────────
@@ -276,7 +430,9 @@ class MedicalRecordController extends Controller
                 break;
 
             case 'invoice':
-                $record = Invoice::where('patient_id', $patientId)->findOrFail($id);
+                $record = Invoice::where('patient_id', $patientId)
+                    ->where('lifecycle_status', '!=', \App\Models\Invoice::STATUS_DRAFT)
+                    ->findOrFail($id);
                 $data = [
                     'type' => 'invoice',
                     'date' => $record->issued_at->toDateString(),

@@ -68,6 +68,19 @@ class BranchController extends Controller
             'map_link'      => 'nullable|string|max:500',
         ]);
 
+        // ── Enforce plan branch limit ─────────────────────────────────────────
+        $clinic         = \App\Models\Clinic::with('plan')->find($this->clinicId());
+        $currentBranches= Branch::where('clinic_id', $this->clinicId())->count();
+        $maxBranches    = $clinic?->plan?->max_branches ?? PHP_INT_MAX;
+
+        if ($currentBranches >= $maxBranches) {
+            return response()->json([
+                'success' => false,
+                'message' => "Your plan allows a maximum of {$maxBranches} branch(es). Please upgrade to add more.",
+                'code'    => 'PLAN_LIMIT_BRANCHES',
+            ], 422);
+        }
+
         $branch = Branch::create([
             ...$validated,
             'clinic_id' => $this->clinicId(),

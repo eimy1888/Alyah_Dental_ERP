@@ -123,4 +123,15 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | SaaS Settings
+    |--------------------------------------------------------------------------
+    */
+    'frontend_url'        => env('FRONTEND_URL', env('APP_URL', 'http://localhost:5173')),
+    'saas_support_email'  => env('SAAS_SUPPORT_EMAIL', 'support@dentflowpro.com'),
+    'saas_trial_days'     => (int) env('SAAS_TRIAL_DAYS', 14),
+    'saas_warning_days'   => (int) env('SAAS_SUBSCRIPTION_WARNING_DAYS', 7),
+    'saas_platform_name'  => env('SAAS_PLATFORM_NAME', 'DentFlow Pro'),
+
 ];

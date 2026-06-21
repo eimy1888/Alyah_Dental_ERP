@@ -31,6 +31,9 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('patient')->group
     // ── My Medical Records ────────────────────────────────
     Route::prefix('medical-records')->group(function () {
         Route::get('/',            [MedicalRecordController::class, 'index']);
+        Route::get('/prescriptions', [MedicalRecordController::class, 'prescriptions']);
+        Route::get('/xrays', [MedicalRecordController::class, 'xrays']);
+        Route::get('/clinical-notes', [MedicalRecordController::class, 'clinicalNotes']);
         Route::get('/{type}/{id}', [MedicalRecordController::class, 'show']);
     });
 

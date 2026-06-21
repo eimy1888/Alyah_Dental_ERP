@@ -30,8 +30,9 @@ class InvoicePdfController extends Controller
     {
         $user = $request->user();
 
-        // Scope check — must belong to this clinic
+        // Scope check — must belong to this clinic and must NOT be DRAFT
         $invoice = Invoice::where('clinic_id', $user->clinic_id)
+            ->where('lifecycle_status', '!=', Invoice::STATUS_DRAFT)
             ->with([
                 'patient',
                 'items',

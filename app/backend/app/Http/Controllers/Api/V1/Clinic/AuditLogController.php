@@ -15,12 +15,12 @@ class AuditLogController extends Controller
 {
     private function clinicId(): int
     {
-        return request()->user()->clinic_id;
+        return auth()->user()?->clinic_id ?? request()->user()->clinic_id;
     }
 
     /**
      * GET /api/v1/admin/audit-logs
-     * Filters: ?event=, ?user_id=, ?from=, ?to=, ?search=, ?per_page=
+     * Filters: ?event=, ?user_id=, ?branch_id=, ?subject_type=, ?subject_id=, ?from=, ?to=, ?search=, ?per_page=
      */
     public function index(Request $request): JsonResponse
     {
@@ -35,6 +35,18 @@ class AuditLogController extends Controller
 
         if ($request->filled('user_id')) {
             $query->where('user_id', $request->user_id);
+        }
+
+        if ($request->filled('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        if ($request->filled('subject_type')) {
+            $query->where('subject_type', 'like', '%' . $request->subject_type . '%');
+        }
+
+        if ($request->filled('subject_id')) {
+            $query->where('subject_id', $request->subject_id);
         }
 
         if ($request->filled('from')) {
@@ -83,6 +95,28 @@ class AuditLogController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $events,
+        ]);
+    }
+
+    public function export(Request $request): JsonResponse
+    {
+        $request->merge(['per_page' => 500]);
+        $payload = $this->index($request)->getData(true);
+
+        AuditLog::record('audit_logs.exported', [
+            'subject_type' => AuditLog::class,
+            'subject_label' => 'Clinic audit export',
+            'new_values' => ['filters' => $request->only(['event', 'user_id', 'branch_id', 'subject_type', 'subject_id', 'from', 'to', 'search'])],
+        ], $request);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'format' => $request->get('format', 'json'),
+                'generated_at' => now()->toDateTimeString(),
+                'rows' => $payload['data'] ?? [],
+            ],
+            'meta' => $payload['meta'] ?? [],
         ]);
     }
 }

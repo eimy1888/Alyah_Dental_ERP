@@ -16,6 +16,10 @@ class Prescription extends Model
         'patient_id',
         'dentist_id',
         'appointment_id',
+        'date',
+        'notes',
+        'status',
+        'finalized_at',
         'medication',
         'dosage',
         'duration_days',
@@ -26,6 +30,8 @@ class Prescription extends Model
     ];
 
     protected $casts = [
+        'date'              => 'date',
+        'finalized_at'      => 'datetime',
         'issued_at'         => 'date',
         'is_refillable'     => 'boolean',
         'duration_days'     => 'integer',
@@ -57,6 +63,30 @@ class Prescription extends Model
     public function appointment()
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(PrescriptionItem::class);
+    }
+
+    public function isDraft(): bool
+    {
+        return ($this->status ?? 'draft') === 'draft';
+    }
+
+    public function finalize(): void
+    {
+        if (!$this->isDraft()) {
+            return;
+        }
+
+        $this->update([
+            'status' => 'finalized',
+            'finalized_at' => now(),
+            'issued_at' => $this->issued_at ?? now()->toDateString(),
+            'date' => $this->date ?? now()->toDateString(),
+        ]);
     }
 
     // ── Scopes ────────────────────────────────────────────
@@ -111,13 +141,22 @@ class Prescription extends Model
             'type'         => 'prescription',
             'patient_id'   => $this->patient_id,
             'patient_name' => $this->patient?->full_name ?? '—',
-            'date'         => $this->issued_at->toDateString(),
-            'description'  => "Prescription: {$this->medication}",
+            'date'         => ($this->date ?? $this->issued_at ?? $this->created_at)->toDateString(),
+            'description'  => "Prescription: " . ($this->items->first()?->drug_name ?? $this->medication),
             'details'      => [
+                'status'        => $this->status ?? 'finalized',
+                'notes'         => $this->notes,
                 'medication'    => $this->medication,
                 'dosage'        => $this->dosage,
                 'duration_days' => $this->duration_days,
                 'instructions'  => $this->instructions,
+                'items'         => $this->items->map(fn($item) => [
+                    'drug_name' => $item->drug_name,
+                    'dosage' => $item->dosage,
+                    'frequency' => $item->frequency,
+                    'duration' => $item->duration,
+                    'instructions' => $item->instructions,
+                ])->values(),
                 'is_refillable' => $this->is_refillable,
             ],
         ];

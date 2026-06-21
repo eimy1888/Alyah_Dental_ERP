@@ -1,10 +1,14 @@
 // src/components/layout/Topbar.jsx
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, LogOut, Bell, Search, ChevronDown, Settings, User, X } from 'lucide-react';
+import { Menu, LogOut, ChevronDown, Settings, User, Moon, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import { useAuth } from '../../hooks/useAuth';
+import { CommandPalette } from '../ui/CommandPalette';
+import { NotificationCenter } from '../ui/NotificationCenter';
+import { useContext } from 'react';
+import { ThemeContext } from '../../hooks/useTheme';
 
 // Ethiopian Traditional Time display helper
 function getETTTime() {
@@ -143,18 +147,28 @@ export default function Topbar({ onMenuClick }) {
   const user           = useAuthStore(s => s.user);
   const { logout }     = useAuth();
   const ettTime        = useETTClock();
-  const [notifOpen, setNotifOpen]   = useState(false);
-  const [userOpen,  setUserOpen]    = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const notifRef  = useRef(null);
+  const { theme, toggleTheme } = useContext(ThemeContext) ?? {};
+  const [cmdOpen,   setCmdOpen]   = useState(false);
+  const [userOpen,  setUserOpen]  = useState(false);
   const userRef   = useRef(null);
 
-  // Close dropdowns on outside click
+  // Ctrl+K / Cmd+K opens command palette
   useEffect(() => {
-    function handler(e) {
-      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
-      if (userRef.current  && !userRef.current.contains(e.target))  setUserOpen(false);
-    }
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Close user dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (userRef.current && !userRef.current.contains(e.target)) setUserOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -168,138 +182,95 @@ export default function Topbar({ onMenuClick }) {
   });
 
   return (
-    <header className="h-[60px] flex items-center justify-between px-4 lg:px-6 flex-shrink-0"
-      style={{
-        background: 'rgba(255,255,255,0.92)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(0,0,0,0.06)',
-        boxShadow: '0 1px 8px rgba(0,0,0,0.04)',
-      }}
-    >
-      {/* ── Left ──────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
-        {/* Hamburger */}
-        <button onClick={onMenuClick}
-          className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 transition"
-        >
-          <Menu size={18} />
-        </button>
-
-        {/* Date + ETT time */}
-        <div className="hidden sm:flex items-center gap-3">
-          <div>
-            <p className="text-xs font-medium text-gray-700 leading-tight">{today}</p>
-            <p className="text-xs text-gray-400 leading-tight mt-0.5">
-              {ettTime} <span className="text-gray-300">·</span> Ethiopian time
-            </p>
+    <>
+      <header className="h-[60px] flex items-center justify-between px-4 lg:px-6 flex-shrink-0"
+        style={{
+          background: 'rgba(255,255,255,0.92)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          boxShadow: '0 1px 8px rgba(0,0,0,0.04)',
+        }}
+      >
+        {/* ── Left ──────────────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3">
+          <button onClick={onMenuClick}
+            className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 transition"
+          >
+            <Menu size={18} />
+          </button>
+          <div className="hidden sm:flex items-center gap-3">
+            <div>
+              <p className="text-xs font-medium text-gray-700 leading-tight">{today}</p>
+              <p className="text-xs text-gray-400 leading-tight mt-0.5">
+                {ettTime} <span className="text-gray-300">·</span> Ethiopian time
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* ── Right ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1.5">
-
-        {/* Search trigger */}
-        <button onClick={() => setSearchOpen(true)}
-          className="hidden md:flex items-center gap-2 h-8 px-3.5 rounded-full text-xs text-gray-400 transition hover:bg-gray-100"
-          style={{ border: '1px solid #e5e7eb' }}
-        >
-          <Search size={13} />
-          <span>Search…</span>
-          <kbd className="ml-1 text-2xs px-1.5 py-0.5 rounded-md font-mono"
-            style={{ background: '#f3f4f6', color: '#9ca3af', border: '1px solid #e5e7eb' }}
-          >⌘K</kbd>
-        </button>
-
-        {/* Notifications */}
-        <div ref={notifRef} className="relative">
-          <button
-            onClick={() => { setNotifOpen(v => !v); setUserOpen(false); }}
-            className="relative w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 transition"
+        {/* ── Right ─────────────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-1.5">
+          {/* Search / Command palette trigger */}
+          <button onClick={() => setCmdOpen(true)}
+            className="hidden md:flex items-center gap-2 h-8 px-3.5 rounded-full text-xs text-gray-400 transition hover:bg-gray-100"
+            style={{ border: '1px solid #e5e7eb' }}
+            aria-label="Open command palette (Ctrl+K)"
           >
-            <Bell size={17} />
-            {/* Unread dot */}
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span>Search…</span>
+            <kbd className="ml-1 text-[10px] px-1.5 py-0.5 rounded-md font-mono"
+              style={{ background: '#f3f4f6', color: '#9ca3af', border: '1px solid #e5e7eb' }}
+            >⌘K</kbd>
           </button>
-          <AnimatePresence>
-            {notifOpen && <NotificationDropdown onClose={() => setNotifOpen(false)} />}
-          </AnimatePresence>
-        </div>
 
-        {/* Divider */}
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-
-        {/* User button */}
-        <div ref={userRef} className="relative">
-          <button
-            onClick={() => { setUserOpen(v => !v); setNotifOpen(false); }}
-            className="flex items-center gap-2 h-9 pl-1 pr-2.5 rounded-full hover:bg-gray-100 transition"
-          >
-            {/* Avatar */}
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #2563eb, #06b6d4)' }}
+          {/* Dark mode toggle */}
+          {toggleTheme && (
+            <button
+              onClick={toggleTheme}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              aria-label="Toggle dark mode"
             >
-              {initials}
-            </div>
-            {/* Name + role */}
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-semibold text-gray-800 leading-tight">{user?.name?.split(' ')[0]}</p>
-              <p className="text-2xs text-gray-400 capitalize leading-tight">{user?.role?.replace('_',' ')}</p>
-            </div>
-            <ChevronDown size={13} className={`text-gray-400 transition-transform duration-200 ${userOpen ? 'rotate-180' : ''}`} />
-          </button>
-          <AnimatePresence>
-            {userOpen && <UserDropdown user={user} onLogout={logout} onClose={() => setUserOpen(false)} />}
-          </AnimatePresence>
-        </div>
+              {theme === 'dark'
+                ? <Sun size={17} className="text-amber-400" />
+                : <Moon size={17} />
+              }
+            </button>
+          )}
 
-      </div>
+          {/* Notification Center (real) */}
+          <NotificationCenter />
 
-      {/* ── Search overlay ─────────────────────────────────────────────── */}
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div
-            key="search-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-80 flex items-start justify-center pt-20 px-4"
-            style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }}
-            onClick={() => setSearchOpen(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: -16, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.97 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full max-w-lg rounded-2xl overflow-hidden"
-              style={{ background: '#fff', boxShadow: '0 32px 80px rgba(0,0,0,0.2)' }}
-              onClick={e => e.stopPropagation()}
+          <div className="w-px h-5 bg-gray-200 mx-1" />
+
+          {/* User button */}
+          <div ref={userRef} className="relative">
+            <button
+              onClick={() => setUserOpen(v => !v)}
+              className="flex items-center gap-2 h-9 pl-1 pr-2.5 rounded-full hover:bg-gray-100 transition"
             >
-              <div className="flex items-center gap-3 px-5 py-4">
-                <Search size={18} className="text-gray-400 flex-shrink-0" />
-                <input
-                  autoFocus
-                  type="text"
-                  placeholder="Search patients, appointments, invoices…"
-                  className="flex-1 text-sm text-gray-800 outline-none placeholder-gray-400 bg-transparent"
-                />
-                <button onClick={() => setSearchOpen(false)}
-                  className="text-xs text-gray-400 hover:text-gray-600 transition font-mono px-2 py-1 rounded-lg"
-                  style={{ background: '#f3f4f6' }}
-                >ESC</button>
-              </div>
-              <div className="px-5 pb-4 text-xs text-gray-400 text-center"
-                style={{ borderTop: '1px solid #f1f5f9' }}
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                style={{ background: 'linear-gradient(135deg, #2563eb, #06b6d4)' }}
               >
-                Type to search across all records
+                {initials}
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </header>
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-semibold text-gray-800 leading-tight">{user?.name?.split(' ')[0]}</p>
+                <p className="text-[10px] text-gray-400 capitalize leading-tight">{user?.role?.replace('_',' ')}</p>
+              </div>
+              <ChevronDown size={13} className={`text-gray-400 transition-transform duration-200 ${userOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+              {userOpen && <UserDropdown user={user} onLogout={logout} onClose={() => setUserOpen(false)} />}
+            </AnimatePresence>
+          </div>
+        </div>
+      </header>
+
+      {/* Global Command Palette */}
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+    </>
   );
 }

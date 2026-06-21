@@ -157,14 +157,6 @@ class CheckInService
                 ]);
             }
 
-            // Create queue item
-            $lastPosition = QueueItem::where('clinic_id', $appointment->clinic_id)
-                ->where('branch_id', $appointment->branch_id)
-                ->where('dentist_id', $appointment->dentist_id)
-                ->where('status', QueueItem::STATUS_WAITING)
-                ->where('priority', $priority)
-                ->max('position') ?? 0;
-
             $queueNotes = null;
             if ($lateCategory === 'severe') {
                 $queueNotes = "Late arrival — {$lateMinutes} min late";
@@ -172,17 +164,7 @@ class CheckInService
                 $queueNotes = "Moderate delay — {$lateMinutes} min late";
             }
 
-            $queueItem = QueueItem::create([
-                'clinic_id' => $appointment->clinic_id,
-                'branch_id' => $appointment->branch_id,
-                'appointment_id' => $appointment->id,
-                'patient_id' => $appointment->patient_id,
-                'dentist_id' => $appointment->dentist_id,
-                'priority' => $priority,
-                'position' => $lastPosition + 1,
-                'status' => QueueItem::STATUS_WAITING,
-                'notes' => $queueNotes,
-            ]);
+            $queueItem = QueueItem::enqueueAppointment($appointment, $priority, $queueNotes);
 
             DB::commit();
 

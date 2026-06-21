@@ -8,7 +8,9 @@ use App\Events\PaymentRecorded;
 use App\Events\ProcedureAdded;
 use App\Events\ProcedureRemoved;
 use App\Listeners\LogBillingEvent;
+use App\Listeners\LogFailedMailListener;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Illuminate\Mail\Events\MessageSent;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -28,6 +30,10 @@ class EventServiceProvider extends ServiceProvider
         ],
         PaymentRecorded::class => [
             [LogBillingEvent::class, 'handlePaymentRecorded'],
+        ],
+        // Mail audit trail
+        MessageSent::class => [
+            LogFailedMailListener::class,
         ],
     ];
 

@@ -18,19 +18,23 @@ class XRay extends Model
         'patient_id',
         'dentist_id',
         'appointment_id',
+        'uploaded_by',
         'study_type',
         'tooth_number',
         'region',
         'file_path',
         'file_name',
         'file_size',
+        'description',
         'status',
         'findings',
         'captured_at',
+        'taken_at',
     ];
 
     protected $casts = [
         'captured_at' => 'date',
+        'taken_at' => 'datetime',
     ];
 
     // Status constants
@@ -57,6 +61,11 @@ class XRay extends Model
     public function dentist()
     {
         return $this->belongsTo(User::class, 'dentist_id');
+    }
+
+    public function uploadedBy()
+    {
+        return $this->belongsTo(User::class, 'uploaded_by');
     }
 
     public function appointment()
@@ -114,13 +123,14 @@ class XRay extends Model
             'type'         => 'xray',
             'patient_id'   => $this->patient_id,
             'patient_name' => $this->patient?->full_name ?? '—',
-            'date'         => $this->captured_at->toDateString(),
+            'date'         => ($this->taken_at ?? $this->captured_at ?? $this->created_at)->toDateString(),
             'description'  => "X-Ray: {$this->study_type}",
             'details'      => [
                 'study_type'  => $this->study_type,
                 'tooth_number'=> $this->tooth_number,
                 'region'      => $this->region,
                 'status'      => $this->status,
+                'description' => $this->description,
                 'findings'    => $this->findings,
                 'file_url'    => $this->file_url,
             ],

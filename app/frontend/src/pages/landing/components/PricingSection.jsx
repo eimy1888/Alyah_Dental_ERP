@@ -39,6 +39,7 @@ function PricingCard({ plan, style, billing, index }) {
   const ref   = useScrollReveal({ threshold: 0.1 });
   const price = billing === 'monthly' ? plan.monthly_price : plan.annual_price;
   const features = Array.isArray(plan.features) ? plan.features : [];
+  const isPlanFree = plan.type === 'free';
 
   return (
     <motion.div
@@ -78,16 +79,29 @@ function PricingCard({ plan, style, billing, index }) {
         <h3 className="text-2xl font-black mb-3" style={{ color: style.featured ? 'white' : '#111827' }}>
           {plan.name}
         </h3>
-        <div className="flex items-end gap-1.5 mb-2">
-          <span className="text-3xl font-black leading-none lg:text-4xl"
-            style={{ color: style.featured ? 'white' : '#111827' }}>
-            ETB {Number(price).toLocaleString()}
-          </span>
-          <span className="mb-1.5 text-sm font-medium"
-            style={{ color: style.featured ? 'rgba(186,230,253,0.65)' : '#9ca3af' }}>
-            /mo
-          </span>
-        </div>
+
+        {isPlanFree ? (
+          <div className="mb-3">
+            <p className="text-3xl font-black leading-none" style={{ color: style.featured ? 'white' : '#111827' }}>Free</p>
+            <p className="text-sm mt-1 font-semibold" style={{ color: style.featured ? 'rgba(186,230,253,0.75)' : '#16a34a' }}>
+              14 days · no credit card · auto-suspends
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-end gap-1.5 mb-1">
+              <span className="text-3xl font-black leading-none lg:text-4xl"
+                style={{ color: style.featured ? 'white' : '#111827' }}>
+                ETB {Number(price).toLocaleString()}
+              </span>
+              <span className="mb-1.5 text-sm font-medium"
+                style={{ color: style.featured ? 'rgba(186,230,253,0.65)' : '#9ca3af' }}>
+                /mo
+              </span>
+            </div>
+          </>
+        )}
+
         <p className="text-sm mb-5"
           style={{ color: style.featured ? 'rgba(186,230,253,0.65)' : '#6b7280' }}>
           Up to {plan.max_users} users · {plan.max_branches} branch{plan.max_branches > 1 ? 'es' : ''} · {plan.max_storage_gb} GB
@@ -110,7 +124,7 @@ function PricingCard({ plan, style, billing, index }) {
             ? { background: 'white', color: '#1d4ed8', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }
             : { background: '#f8fafc', color: '#374151', border: '1px solid #e2e8f0' }
           }>
-          Get started with {plan.name}
+          {isPlanFree ? 'Start free trial' : `Get started with ${plan.name}`}
           <ArrowRight className="w-4 h-4" />
         </Link>
       </div>

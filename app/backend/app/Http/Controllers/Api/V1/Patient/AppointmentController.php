@@ -225,18 +225,13 @@ class AppointmentController extends Controller
         // Check if slot is still available
         $appointmentTime = Carbon::parse($request->appointment_time);
         $duration = 30;
-        $appointmentEnd = (clone $appointmentTime)->addMinutes($duration);
-
-        $conflictingAppointment = Appointment::where('clinic_id', $clinicId)
-            ->where('branch_id', $branchId)
-            ->where('dentist_id', $dentist->id)
-            ->whereDate('appointment_time', $appointmentTime->toDateString())
-            ->whereNotIn('status', ['cancelled', 'no_show'])
-            ->where(function ($query) use ($appointmentTime, $appointmentEnd) {
-                $query->where('appointment_time', '<', $appointmentEnd)
-                      ->whereRaw("DATE_ADD(appointment_time, INTERVAL duration_minutes MINUTE) > ?", [$appointmentTime]);
-            })
-            ->exists();
+        $conflictingAppointment = Appointment::hasDentistOverlap(
+            $clinicId,
+            $branchId,
+            $dentist->id,
+            $appointmentTime,
+            $duration
+        );
 
         if ($conflictingAppointment) {
             return response()->json([

@@ -45,23 +45,23 @@ class CheckEmergencyWaitingTime implements ShouldQueue
             $emergencies = $emergencyService->checkWaitingEmergencies($clinic->id, $thresholdMinutes);
 
             if ($emergencies->isNotEmpty()) {
-                Log::warning('Emergency waiting time exceeded', [
-                    'clinic_id' => $clinic->id,
-                    'clinic_name' => $clinic->name,
-                    'emergency_count' => $emergencies->count(),
-                    'threshold_minutes' => $thresholdMinutes,
-                    'emergencies' => $emergencies->map(function ($item) {
-                        return [
-                            'queue_item_id' => $item->id,
-                            'patient_name' => $item->patient?->full_name,
-                            'waiting_minutes' => now()->diffInMinutes($item->created_at),
-                            'dentist_name' => $item->dentist?->name,
-                        ];
-                    }),
-                ]);
+                foreach ($emergencies as $queueItem) {
+                    $waitingMinutes = (int) now()->diffInMinutes($queueItem->created_at);
 
-                // TODO: Send notification to branch manager
-                // This will be implemented when notification module is ready
+                    \App\Services\NotificationService::emergencyWaitingTooLong(
+                        $queueItem,
+                        $waitingMinutes,
+                        $thresholdMinutes
+                    );
+
+                    Log::warning('Emergency waiting time exceeded', [
+                        'clinic_id'         => $clinic->id,
+                        'queue_item_id'     => $queueItem->id,
+                        'patient_name'      => $queueItem->patient?->full_name,
+                        'waiting_minutes'   => $waitingMinutes,
+                        'threshold_minutes' => $thresholdMinutes,
+                    ]);
+                }
             }
         }
     }

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 
 use App\Helpers\EthiopianTime;
 
@@ -250,6 +251,93 @@ class Appointment extends Model
         return $query->where('status', self::STATUS_PENDING);
     }
 
+    public static function hasDentistOverlap(
+        int $clinicId,
+        ?int $branchId,
+        int $dentistId,
+        CarbonInterface $start,
+        int $durationMinutes,
+        ?int $ignoreAppointmentId = null
+    ): bool {
+        $end = $start->copy()->addMinutes($durationMinutes);
+
+        $query = static::where('clinic_id', $clinicId)
+            ->where('dentist_id', $dentistId)
+            ->whereDate('appointment_time', $start->toDateString())
+            ->whereNotIn('status', [self::STATUS_CANCELLED, self::STATUS_NO_SHOW]);
+
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        if ($ignoreAppointmentId !== null) {
+            $query->where('id', '!=', $ignoreAppointmentId);
+        }
+
+        return $query->get(['id', 'appointment_time', 'duration_minutes'])
+            ->contains(function (self $appointment) use ($start, $end) {
+                $existingStart = $appointment->appointment_time;
+                $existingEnd = $existingStart->copy()->addMinutes($appointment->duration_minutes ?? 30);
+
+                return $start->lt($existingEnd) && $end->gt($existingStart);
+            });
+    }
+
+    public function completionBlocker(): ?array
+    {
+        $openEpisode = $this->episodes()
+            ->whereNotIn('status', [
+                TreatmentEpisode::STATUS_FINALIZED,
+                TreatmentEpisode::STATUS_BILLED,
+                TreatmentEpisode::STATUS_CANCELLED,
+            ])
+            ->first();
+
+        if ($openEpisode) {
+            return [
+                'code' => 'OPEN_TREATMENT_EPISODE',
+                'message' => 'Cannot complete appointment while treatment episodes are still open.',
+                'episode_id' => $openEpisode->id,
+            ];
+        }
+
+        $unfinishedProcedure = $this->procedures()
+            ->whereNotIn('status', ['performed', 'completed', 'cancelled'])
+            ->first();
+
+        if ($unfinishedProcedure) {
+            return [
+                'code' => 'UNFINISHED_PROCEDURE',
+                'message' => 'Cannot complete appointment while procedures are unfinished.',
+                'procedure_id' => $unfinishedProcedure->id,
+            ];
+        }
+
+        $invoiceIds = collect([
+            $this->invoice?->id,
+            $this->service_invoice_id,
+            $this->treatment_invoice_id,
+        ])->filter()->unique()->values();
+
+        if ($invoiceIds->isNotEmpty()) {
+            $unpaidInvoice = Invoice::whereIn('id', $invoiceIds)
+                ->whereNotIn('lifecycle_status', [Invoice::STATUS_PAID, Invoice::STATUS_LOCKED])
+                ->where('balance', '>', 0)
+                ->first();
+
+            if ($unpaidInvoice) {
+                return [
+                    'code' => 'UNPAID_INVOICE',
+                    'message' => 'Cannot complete appointment while invoices remain unpaid.',
+                    'invoice_id' => $unpaidInvoice->id,
+                    'balance' => (float) $unpaidInvoice->balance,
+                ];
+            }
+        }
+
+        return null;
+    }
+
     // ── Helper Methods ─────────────────────────────────────
 
     public function getEndTimeAttribute()
@@ -438,6 +526,10 @@ class Appointment extends Model
      */
     public function complete(): void
     {
+        if ($blocker = $this->completionBlocker()) {
+            throw new \RuntimeException($blocker['message']);
+        }
+
         $this->update([
             'status' => self::STATUS_COMPLETED,
             'end_time' => now(),

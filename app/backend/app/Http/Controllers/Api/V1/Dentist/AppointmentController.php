@@ -163,6 +163,15 @@ class AppointmentController extends Controller
             $updateData['notes'] = $request->notes;
         }
 
+        if ($request->status === 'completed' && ($blocker = $appointment->completionBlocker())) {
+            return response()->json([
+                'success' => false,
+                'message' => $blocker['message'],
+                'code' => $blocker['code'],
+                'data' => $blocker,
+            ], 422);
+        }
+
         // ── FIX: Properly update queue item and remove from active queue ──
         if ($request->status === 'in_progress') {
             \App\Models\QueueItem::where('appointment_id', $appointment->id)
@@ -186,6 +195,7 @@ class AppointmentController extends Controller
                     'status' => 'completed',
                     'completed_at' => now(),
                 ]);
+            \App\Models\QueueItem::recalculatePositions($appointment->clinic_id, $appointment->branch_id, $appointment->dentist_id);
         }
         
         if ($request->status === 'cancelled' || $request->status === 'no_show') {
@@ -194,6 +204,7 @@ class AppointmentController extends Controller
                     'status' => 'removed',
                     'completed_at' => now(),
                 ]);
+            \App\Models\QueueItem::recalculatePositions($appointment->clinic_id, $appointment->branch_id, $appointment->dentist_id);
         }
 
         $appointment->update($updateData);
@@ -309,9 +320,41 @@ class AppointmentController extends Controller
 
     public function export(Request $request): JsonResponse
     {
+        $dentist      = $request->user();
+        $appointments = \App\Models\Appointment::forClinic($dentist->clinic_id)
+            ->forBranch($dentist->branch_id)
+            ->forDentist($dentist->id)
+            ->with(['patient'])
+            ->when($request->filled('from_date'), fn($q) => $q->whereDate('appointment_time', '>=', $request->from_date))
+            ->when($request->filled('to_date'),   fn($q) => $q->whereDate('appointment_time', '<=', $request->to_date))
+            ->when($request->filled('status') && $request->status !== 'All', fn($q) => $q->where('status', $request->status))
+            ->orderBy('appointment_time')
+            ->limit(1000)
+            ->get();
+
+        $rows   = [];
+        $rows[] = ['Date', 'Time', 'Patient', 'Type', 'Status', 'Duration (min)', 'Notes'];
+
+        foreach ($appointments as $a) {
+            $rows[] = [
+                $a->appointment_time->format('d M Y'),
+                $a->appointment_time->format('H:i'),
+                $a->patient?->full_name ?? '—',
+                $a->type,
+                ucfirst(str_replace('_', ' ', $a->status)),
+                $a->duration_minutes,
+                $a->notes ?? '',
+            ];
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Export is being generated. Download will be ready shortly.',
+            'message' => 'Appointment export ready.',
+            'data'    => [
+                'headers'       => $rows[0],
+                'rows'          => array_slice($rows, 1),
+                'total_records' => $appointments->count(),
+            ],
         ]);
     }
 

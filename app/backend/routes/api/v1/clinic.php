@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Clinic\BillingController;
 use App\Http\Controllers\Api\V1\Clinic\FinanceController;
 use App\Http\Controllers\Api\V1\Clinic\SettingsController;
 use App\Http\Controllers\Api\V1\Clinic\DashboardController;
+use App\Http\Controllers\Api\V1\Clinic\DocumentController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('admin')->group(function () {
@@ -58,6 +59,7 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('admin')->group(f
     Route::delete('finance/expenses/{expense}', [FinanceController::class, 'deleteExpense']);
 
     Route::get('reports',                [ReportsController::class, 'index']);
+    Route::get('reports/operational-summary', [ReportsController::class, 'operationalSummary']);
     Route::post('reports/{id}/generate', [ReportsController::class, 'generate']);
 
     Route::get('settings',               [SettingsController::class, 'index']);
@@ -87,4 +89,12 @@ Route::middleware(['cookie.auth', 'subdomain.access'])->prefix('admin')->group(f
     // ── Audit Log ─────────────────────────────────────────────────────────────
     Route::get('audit-logs',        [\App\Http\Controllers\Api\V1\Clinic\AuditLogController::class, 'index']);
     Route::get('audit-logs/events', [\App\Http\Controllers\Api\V1\Clinic\AuditLogController::class, 'events']);
+    Route::get('audit-logs/export', [\App\Http\Controllers\Api\V1\Clinic\AuditLogController::class, 'export']);
+
+    Route::get('documents', [DocumentController::class, 'index']);
+    Route::post('documents', [DocumentController::class, 'store']);
+    Route::get('documents/{document}', [DocumentController::class, 'show']);
+    Route::get('documents/{document}/download', [DocumentController::class, 'download']);
+    Route::post('documents/{document}/archive', [DocumentController::class, 'archive']);
+    Route::post('documents/{document}/restore', [DocumentController::class, 'restore']);
 });
