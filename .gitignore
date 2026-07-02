@@ -21,3 +21,7 @@ app/frontend/.env.production
 Thumbs.db
 .vscode/settings.json
 *.log
+
+# ── Kiro IDE workspace (not needed in repo) ──────────────
+.kiro/
+.agents/
